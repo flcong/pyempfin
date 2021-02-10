@@ -1,0 +1,5 @@
+*.lock
+*.pyc
+*.dirlock
+*.egg-info
+.idea
