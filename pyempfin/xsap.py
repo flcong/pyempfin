@@ -5,7 +5,7 @@ from joblib import Parallel, delayed, cpu_count
 from scipy.stats import t as tdist
 from typing import Union
 import re
-
+from functools import partial
 
 # =============================================================================#
 # Functions to estimate beta
@@ -246,12 +246,12 @@ def fmreg(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: list,
     if isinstance(leftdata.columns, pd.MultiIndex):
         assert leftdata.columns.nlevels == 2
     else:
-        assert isinstance(leftdata.columns, pd.index)
+        assert isinstance(leftdata.columns, pd.Index)
     if isinstance(rightdata.columns, pd.MultiIndex):
         assert rightdata.columns.nlevels == 2
         assert set(roworder).issubset(set(rightdata.columns.levels[1]))
     else:
-        assert isinstance(rightdata.columns, pd.index)
+        assert isinstance(rightdata.columns, pd.Index)
         assert set(roworder).issubset(set(rightdata.columns))
     assert isinstance(hasconst, bool)
     assert (winsorcuts is None) or (
@@ -279,20 +279,18 @@ def fmreg(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: list,
             leftdatatmp.columns = [depvar]
         else:
             depvar = model[0]
-            leftdatatmp = leftdata
+            leftdatatmp = leftdata[[model[0]]]
             # No need to assign leftdata.columns here
         # ---------- Prepare RHS data set
+        rightdatatmp = rightdata.reindex(leftdata.index)[model[1:]]
         if isinstance(rightdata.columns, pd.MultiIndex):
             # Note that model[1:] is a list, so single brackets are enough to
             # return a dataframe
-            rightdatatmp = rightdata.reindex(leftdata.index)
-            rightdatatmp = rightdatatmp[model[1:]]
             # This is a MultiIndex
             indepvars = list(rightdatatmp.columns.get_level_values(1))
             rightdatatmp.columns = indepvars
         else:
             indepvars = model[1:]
-            rightdatatmp = rightdata.reindex(leftdata.index)
             # No need to assign rightdata.columns here
         # Add Constant
         if hasconst:
@@ -333,13 +331,12 @@ def fmreg(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: list,
                        'N/period': nobsavg,
                        'Adjusted $R^2$': ar2
                    })
-
     estouttab = estout.output(
         type='tstat',
         estfmt=estfmt,
         statfmt=(',.0f', ',.0f', ',.1f', '.3f'),
-        roworder=roworder,
-        scale=100
+        roworder=roworder + ['Constant'] if hasconst else roworder,
+        scale=scale
     )
     return estouttab
 
@@ -459,6 +456,60 @@ def _winsor_njit(data: np.ndarray, cuts: tuple, interpolation: str):
     return out
 
 
+def tscssum(data: pd.DataFrame, subset: Union[list,None]=None,
+            percentiles: tuple=(.01, .05, .50, .95, .99)) -> pd.DataFrame:
+    """Print time-series average of cross-sectional summary statistics
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The data table to generate summary statistics
+    subset : list of str, default: None
+        The list of column names to generate summary statistics. If None, all
+        columns are used.
+    percentiles : tuple of float, default: (.01, .05, .25, .50, .75, .95, .99)
+        The list of percentiles in the table.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The summary statistics. Each row represents one variable and each
+        column represents one statistic.
+    """
+    if subset is None:
+        subset = data.columns
+    else:
+        assert set(subset).issubset(set(data.columns))
+    # Construct functions
+    funclist = [
+       lambda x: np.isfinite(x).sum() if np.isfinite(
+           x).sum() > 0 else np.nan,
+       lambda x: x[np.isfinite(x)].mean() if np.isfinite(
+           x).sum() > 0 else np.nan,
+       lambda x: x[np.isfinite(x)].std() if np.isfinite(
+           x).sum() > 0 else np.nan,
+       lambda x: x[np.isfinite(x)].min() if np.isfinite(
+           x).sum() > 0 else np.nan,
+       ] + [
+        partial(
+            lambda x, i: np.percentile(x[np.isfinite(x)], q=i * 100)
+            if np.isfinite(x).sum() > 0 else np.nan, i=i)
+        for i in percentiles
+    ] + [lambda x: x[np.isfinite(x)].max() if np.isfinite(
+        x).sum() > 0 else np.nan]
+    # Calculate the number of observations
+    resN = data.groupby(level=1)[subset].agg(funclist[0]).sum().astype('int')
+    # Calculate other summary statistics
+    res = data.groupby(level=1)[subset] \
+        .agg(funclist) \
+        .mean() \
+        .unstack(level=-1) \
+        .set_axis(['N', 'Mean', 'Std', 'Min'] +
+                  ['p' + str(int(i * 100)) for i in percentiles] + ['Max'],
+                  axis='columns'
+                  )
+    res['N'] = resN
+    return res
 
 
 

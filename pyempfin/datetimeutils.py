@@ -20,6 +20,20 @@ def sas2date(d: pd.Series) -> pd.Series:
     """
     return pd.to_datetime('1960-01-01') + pd.to_timedelta(d, unit='D')
 
+def date2sas(d: pd.Series) -> pd.Series:
+    """Convert a pandas series of datetime to SAS date in int
+
+    Parameters
+    ----------
+    d : pandas.Series
+        Pandas datetime type.
+
+    Returns
+    -------
+    pandas.Series
+        Integer representing number of days from 1960-01-01.
+    """
+    return (d - pd.Timestamp('1960-01-01')).dt.days
 
 def ymd2date(d: pd.Series) -> pd.Series:
     """Convert a pandas series of yyyymmdd date to pandas datetime

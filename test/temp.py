@@ -1,11 +1,11 @@
 import pytest
 import numpy as np
-from PyEmpFinHelper.xsap import _winsor_njit, _newey_njit, estbeta, estbeta1m
+from pyempfin.xsap import _winsor_njit, _newey_njit, estbeta, estbeta1m
 import pandas as pd
 import os
 from joblib import Parallel, delayed
 
-# os.chdir('test')
+os.chdir('test')
 # Load stock data
 xsstk = pd.read_csv('xsstktestdata.csv')
 xsstk.columns = xsstk.columns.str.lower()
@@ -23,6 +23,20 @@ models = {
     'm2': ['exret', 'mktrf', 'smb', 'hml'],
     'm3': ['exret', 'mktrf', 'smb', 'hml', 'umd']
 }
+beta = estbeta(
+    leftdata=xsstk,
+    rightdata=ff,
+    models=models,
+    window=(-20, -5),
+    minobs=10,
+    hasconst=True
+)
+
+data = beta
+subset = None
+percentiles = (.01, .05, .50, .95, .99)
+
+
 # Let stk and ff have a MultiIndex
 xsstk2 = xsstk.copy()
 xsstk2.columns = pd.MultiIndex.from_arrays([['exret'], ['exret']])

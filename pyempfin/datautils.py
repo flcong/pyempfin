@@ -24,8 +24,8 @@ def winsor(datacol: pd.Series, lower: float, upper: float) -> pd.Series:
     assert 0 <= lower <= 1, 'Lower percentile is not between 0 and 1'
     assert 0 <= upper <= 1, 'Upper percentile is not between 0 and 1'
     return datacol.clip(
-        lower=np.nanquantile(datacol, q=lower*100),
-        upper=np.nanquantile(datacol, q=upper*100)
+        lower=np.nanquantile(datacol, q=lower),
+        upper=np.nanquantile(datacol, q=upper)
     )
 
 
