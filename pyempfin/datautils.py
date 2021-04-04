@@ -29,13 +29,13 @@ def winsor(datacol: pd.Series, lower: float, upper: float) -> pd.Series:
     )
 
 
-def sumstat(data: pd.DataFrame, subset: Union[list,None]=None,
+def sumstat(data: Union[pd.DataFrame,pd.Series], subset: Union[list,None]=None,
             percentiles: tuple=(.01, .05, .50, .95, .99)) -> pd.DataFrame:
     """Print summary statistics
 
     Parameters
     ----------
-    data : pandas.DataFrame
+    data : pandas.DataFrame or pandas.Series
         The data table to generate summary statistics
     subset : list of str, default: None
         The list of column names to generate summary statistics. If None, all
@@ -45,12 +45,10 @@ def sumstat(data: pd.DataFrame, subset: Union[list,None]=None,
 
     Returns
     -------
-    pandas.DataFrame
+    pandas.DataFrame or pandas.Series
         The summary statistics. Each row represents one variable and each
         column represents one statistic.
     """
-    if subset is None:
-        subset = data.columns
     funclist = [
                    lambda x: np.isfinite(x).sum(),
                    np.nanmean,
@@ -59,14 +57,28 @@ def sumstat(data: pd.DataFrame, subset: Union[list,None]=None,
                ] + [partial(lambda x, i: np.nanpercentile(x, q=i * 100), i=i)
                     for i in percentiles
                     ] + [np.nanmax]
-    res = pd.DataFrame(
-        [[func(data[x].to_numpy()) for func in funclist] for x in subset],
-        index=subset,
-        columns=[
-                    'N', 'Mean', 'Std', 'Min'
-                ] + ['p' + str(int(i * 100)) for i in percentiles] + ['Max']
-    )
-    return res
+    if isinstance(data, pd.DataFrame):
+        if subset is None:
+            subset = data.columns
+        res = pd.DataFrame(
+            [[func(data[x].to_numpy()) for func in funclist] for x in subset],
+            index=subset,
+            columns=[
+                        'N', 'Mean', 'Std', 'Min'
+                    ] + ['p' + str(int(i * 100)) for i in percentiles] + ['Max']
+        )
+        return res
+    elif isinstance(data, pd.Series):
+        res = pd.Series(
+            [func(data.to_numpy()) for func in funclist],
+            index=[
+                        'N', 'Mean', 'Std', 'Min'
+                    ] + ['p' + str(int(i * 100)) for i in percentiles] + ['Max']
+        )
+        return res
+    else:
+        raise ValueError('data is not of pd.DataFrame or pd.Series type!')
+
 
 
 def ndup(data: pd.DataFrame, subset: Union[list,None]=None) -> int:
