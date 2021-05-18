@@ -29,6 +29,37 @@ def winsor(datacol: pd.Series, lower: float, upper: float) -> pd.Series:
     )
 
 
+def trunc(data: np.ndarray, lower: float, upper: float) -> np.ndarray:
+    """Truncate data at specific percentiles
+        E.g. _trunc(data, threshold=(0.01, 0.99)) truncate data
+        at 1% and 99%.    
+
+    Parameters
+    ----------
+    data : np.ndarray
+    lower : float
+        Lower percentile to truncate. The value should be between 0 and 1
+    upper : float
+        Upper percentile to truncate. The value should be between 0 and 1
+
+    Returns
+    -------
+    np.ndarray
+    """    
+    assert 0 <= lower <= 1, 'Lower percentile is not between 0 and 1'
+    assert 0 <= upper <= 1, 'Upper percentile is not between 0 and 1'
+    # Get mask for non-missing values
+    nnamask = ~np.isnan(data)
+    # Get lower and upper threshold
+    lo = np.quantile(data[nnamask], lower)
+    up = np.quantile(data[nnamask], upper)
+    # Get values between lo and up
+    res = np.nan * np.ones(len(data))
+    mask = (lo <= data) & (data <= up)
+    res[mask] = data[mask]
+    return res
+
+
 def sumstat(data: Union[pd.DataFrame,pd.Series], subset: Union[list,None]=None,
             percentiles: tuple=(.01, .05, .50, .95, .99)) -> pd.DataFrame:
     """Print summary statistics

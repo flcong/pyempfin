@@ -3,6 +3,48 @@ import numpy as np
 from joblib import Parallel, delayed
 from typing import Union
 
+def intck(freq: str, fdate: Union[pd.Series,pd.Timestamp], ldate: Union[pd.Series,pd.Timestamp]) -> Union[pd.Series,pd.Timestamp]:
+    """Return the number of months or days between two dates, similar to SAS intck function
+    
+    Parameters
+    ----------
+    freq : str
+        Allowed values are "month" and "day"
+    fdate : pd.Series or pd.Timestamp
+        Start date or a series of start dates.
+    ldate : pd.Series or pd.Timestamp
+        End date or a series of end dates.
+    """    
+    if isinstance(fdate, pd.Series) and isinstance(ldate, pd.Series):
+        if freq == 'month':
+            return (ldate.dt.year - fdate.dt.year) * 12 + (ldate.dt.month - fdate.dt.month)
+        elif freq == 'day':
+            return (ldate - fdate).dt.days
+
+    elif isinstance(fdate, pd.Series) and isinstance(ldate, pd.Timestamp):
+        if freq == 'month':
+            return (ldate.year - fdate.dt.year) * 12 + (ldate.month - fdate.dt.month)
+        elif freq == 'day':
+            return (ldate - fdate).dt.days
+
+    elif isinstance(fdate, pd.Timestamp) and isinstance(ldate, pd.Series):
+        if freq == 'month':
+            return (ldate.dt.year - fdate.year) * 12 + (ldate.dt.month - fdate.month)
+        elif freq == 'day':
+            return (ldate - fdate).dt.days
+        
+    elif isinstance(fdate, pd.Timestamp) and isinstance(ldate, pd.Timestamp):
+        if freq == 'month':
+            return (ldate.year - fdate.year) * 12 + (ldate.month - fdate.month)
+        elif freq == 'day':
+            return (ldate - fdate) / np.timedelta64(1, 'D')
+        
+    elif isinstance(fdate, datetime.date) and isinstance(ldate, datetime.date):
+        if freq == 'month':
+            return (ldate.year - fdate.year) * 12 + (ldate.month - fdate.month)
+        elif freq == 'day':
+            return (ldate - fdate) / datetime.timedelta(days=1)
+
 def sas2date(d: pd.Series) -> pd.Series:
     """Convert a pandas series of SAS date to pandas datetime
 
@@ -51,7 +93,7 @@ def ymd2date(d: pd.Series) -> pd.Series:
     return pd.to_datetime(d, format='%Y%m%d')
 
 # Pandas datetime to YYYYMMDD
-def date2ymd(d: pd.Series, type: str='int') -> pd.Series:
+def date2ymd(d: Union[pd.Series,pd.Timestamp], type: str='int') -> pd.Series:
     """Convert a pandas series of pandas datetime into yyyymmdd format, either
     string or integer type.
 
