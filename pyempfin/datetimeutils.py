@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from joblib import Parallel, delayed
 from typing import Union
+import datetime
 
 def intck(freq: str, fdate: Union[pd.Series,pd.Timestamp], ldate: Union[pd.Series,pd.Timestamp]) -> Union[pd.Series,pd.Timestamp]:
     """Return the number of months or days between two dates, similar to SAS intck function
@@ -93,21 +94,22 @@ def ymd2date(d: pd.Series) -> pd.Series:
     return pd.to_datetime(d, format='%Y%m%d')
 
 # Pandas datetime to YYYYMMDD
-def date2ymd(d: Union[pd.Series,pd.Timestamp], type: str='int') -> pd.Series:
+def date2ymd(d: Union[pd.Series,pd.Timestamp], type: str='int') -> Union[pd.Series,int,str]:
     """Convert a pandas series of pandas datetime into yyyymmdd format, either
     string or integer type.
 
     Parameters
     ----------
-    d : pandas.Series
-        A pandas series of pandas datatime
+    d : pandas.Series or pandas.Timestamp
+        A pandas series of pandas datatime or a single pandas.Timestamp
     type : str, default: 'int'
         Either 'int' or 'str' specifying the output type.
 
     Returns
     -------
     pandas.Series
-        A pandas series of type str or int depending on the parameter `type`.
+        A pandas series of type str or int depending on the parameter `type` or
+        a single str or int if the input is a pandas.Timestamp.
     """
     if isinstance(d, pd.Series) and pd.api.types.is_datetime64_ns_dtype(d):
         if type == 'str':
