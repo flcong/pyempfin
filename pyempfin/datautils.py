@@ -144,13 +144,18 @@ def getdup(data: pd.DataFrame, subset: Union[list,None]=None) -> pd.DataFrame:
 
 
 # Count missing values
-def desmiss(data: pd.DataFrame, subset: Union[list,None]=None) -> pd.DataFrame:
-    """Return a description of missing observations in the data set
+def desmiss(data: pd.DataFrame,
+            subset: Union[list,None]=None,
+            not_missing: bool=False,
+            sort: Union[str,None]='descending') -> pd.DataFrame:
+    """Return a description of missing (or non-missing) observations in the data set
 
     Parameters
     ----------
     data : pandas.DataFrame
     subset : list of str, default: None
+    not_missing : bool, default: False
+    sort : {'descending', 'ascending', None}, default: 'descending'
 
     Returns
     -------
@@ -158,13 +163,32 @@ def desmiss(data: pd.DataFrame, subset: Union[list,None]=None) -> pd.DataFrame:
     """
     if subset is None:
         subset = data.columns
-    out = pd.DataFrame({
-        '# NaN': data[subset].apply(lambda x: x.isna().sum())
-    })
-    out['% NaN'] = out['# NaN'].apply(
-        lambda x: '{:.2f}%'.format(x / data.shape[0] * 100)
-    )
-    out = out.sort_values('# NaN', ascending=False)
+    if not_missing:
+        out = pd.DataFrame({
+            '# not NaN': data[subset].apply(lambda x: (~x.isna()).sum())
+        })
+        out['% not NaN'] = out['# not NaN'].apply(
+            lambda x: '{:.2f}%'.format(x / data.shape[0] * 100)
+        )
+        sort_var = '# not NaN'
+    else:
+        out = pd.DataFrame({
+            '# NaN': data[subset].apply(lambda x: x.isna().sum())
+        })
+        out['% NaN'] = out['# NaN'].apply(
+            lambda x: '{:.2f}%'.format(x / data.shape[0] * 100)
+        )
+        out = out.sort_values('# NaN', ascending=False)
+        sort_var = '# NaN'
+    # Sort
+    if sort == 'descending':
+        out = out.sort_values(sort_var, ascending=False)
+    elif sort == 'ascending':
+        out = out.sort_values(sort_var, ascending=True)
+    elif sort is None:
+        pass
+    else:
+        raise ValueError('Invalid value for argument sort')
     return out
 
 
