@@ -218,6 +218,65 @@ def coalesce(*argv) -> pd.Series:
     return out
 
 
+def weighted_mean(data: pd.DataFrame,
+                  by: list,
+                  value: str,
+                  weight: str,
+                  wavg: str) -> pd.DataFrame:
+    """Calculate weighted average
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        Input DataFrame
+    by : list of str
+        List of column names to group by
+    value : str
+        Column name of the variable to calculate average
+    weight : str
+        Column name of the variable as weight
+    wavg : str
+        Column name of the calculated weighted average
+
+    Returns
+    -------
+    pd.DataFrame
+        Output DataFrame with column names in by and wavg.
+    """
+    # Dict to encode column names
+    encodedict = {by[i]: f'by_{i}' for i in range(len(by))}
+    encodedict[value] = 'value'
+    encodedict[weight] = 'weight'
+    # Dict to decode column names
+    decodedict = {f'by_{i}': by[i] for i in range(len(by))}
+    decodedict['value'] = value
+    decodedict['weight'] = weight
+    decodedict['wavg'] = wavg
+    # Assign encoded names
+    by_ = [f'by_{i}' for i in range(len(by))]
+    # Select useful columns
+    data1 = data[by + [value, weight]]
+    # Encode column names
+    data1.columns = data1.columns.to_series().replace(encodedict).tolist()
+    # Remove missing weights
+    data1 = data1.dropna(subset=['value'], how='any')
+    # Calculate val*weight
+    data1['val*w'] = data1['value'] * data1['weight']
+    # Calculate sum(val*weight)
+    data1['sum(val*w)'] = data1.groupby(by_)['val*w'].transform('sum')
+    # Calculate sum(weight)
+    data1['sum(w)'] = data1.groupby(by_)['weight'].transform('sum')
+    # Calculate sum(val*weight)/sum(weight)
+    data1['wavg'] = data1['sum(val*w)'] / data1['sum(w)']
+    # Drop duplicates
+    data1 = data1.drop_duplicates(by_)
+    # Keep columns
+    data1 = data1[by_ + ['wavg']]
+    # Decode variable names
+    data1.columns = data1.columns.to_series().replace(decodedict).tolist()
+    return data1
+
+
 @njit
 def wmean(data: np.ndarray, weights: np.ndarray) -> float:
     """Weighted average
@@ -245,3 +304,103 @@ def wmean(data: np.ndarray, weights: np.ndarray) -> float:
         return numer / denom
     else:
         return np.nan
+
+
+def des(data: Union[pd.Series, pd.DataFrame],
+        dropna: bool=False,
+        format: Union[None,str,list]=',.2f',
+        columns: str='stats',
+        html: bool=False,
+        **kwargs):
+    """Enhanced pandas describe() with NA counts and better formating
+
+    Parameters
+    ----------
+    data : pd.Series or pd.DataFrame
+        Input data
+    dropna : bool, default: False
+        If True, NA counts and percentages are displayed.
+    format : None or str or list, default: None
+        Format of statistics for each variable. If data is pd.Series, format
+        must be either a str or a list of a single str.
+    """
+    assert isinstance(data, (pd.Series, pd.DataFrame)), 'data is not pandas.Series or pandas.DataFrame'
+    assert columns in ['stats', 'vars'], 'Invalid value for columns'
+    out = data.describe(**kwargs)
+    # Change format
+    if isinstance(data, pd.Series):
+        if pd.api.types.is_list_like(format) and len(format) == 1:
+            outstr_wocnt = out.drop(index='count').apply(
+                lambda x: _format_to_str(x, format[0])
+            )
+        elif isinstance(format, str):
+            outstr_wocnt = out.drop(index='count').apply(
+                lambda x: _format_to_str(x, format)
+            )
+        else:
+            raise TypeError('format is invalid for pandas.Series')
+        outstr_cnt = pd.Series(
+            [_format_to_str(out.loc['count'], ',.0f')], index=['count']
+        )
+    elif isinstance(data, pd.DataFrame):
+        if isinstance(format, str):
+            outstr_wocnt = out.drop(index='count').apply(
+                lambda x: _format_to_str(x, format)
+            )
+        elif pd.api.types.is_list_like(format):
+            assert len(format) == len(data.columns), \
+                'format does not have the same length as data'
+            outstr_wocnt = pd.concat([
+                _format_to_str(out.drop(index='count').iloc[:, i], format[i])
+                for i in range(len(out.columns))
+            ], axis=1)
+        else:
+            raise TypeError('format is not list-like or a str')
+        outstr_cnt = _format_to_str(out.loc['count'], ',.0f').to_frame().T
+    else:
+        raise TypeError('data should be pandas.Series or pandas.DataFrame')
+    outstr = pd.concat([outstr_cnt, outstr_wocnt], axis=0)
+    # Add NA counts
+    if not dropna:
+        na_count = data.isna().sum(axis=0)
+        na_pct = na_count / out.loc['count'] * 100
+        outstr.loc['#NA'] = _format_to_str(na_count, ',d')
+        outstr.loc['%NA'] = _format_to_str(na_pct, '.2f', suffix='%')
+    if isinstance(data, pd.Series):
+        outstr = outstr.to_frame(data.name)
+    if columns == 'stats':
+        outstr = outstr.T
+    # Output
+    if html:
+        return outstr.style.set_table_styles(
+            [
+                dict(selector='td', props=[('text-align', 'right')]),
+                dict(selector='thead>tr>th', props=[('text-align', 'center')])
+            ]
+        )
+    else:
+        return outstr
+
+
+def _format_to_str(data: Union[float, pd.Series],
+                   format: str,
+                   prefix: str='',
+                   suffix: str='') -> Union[str, pd.Series]:
+    """Format data (series or number) into str.
+
+    Parameters
+    ----------
+    data : float or pandas.Series
+    format : str
+    prefix : str, default: ''
+    suffix : str, default: ''
+
+    Returns
+    -------
+    str or pd.Series
+    """
+    formatfunc = lambda x: (prefix + '{:' + format + '}' + suffix).format(x)
+    if isinstance(data, pd.Series):
+        return data.apply(formatfunc)
+    elif pd.api.types.is_scalar(data):
+        return formatfunc(data)

@@ -185,6 +185,7 @@ def yrdif(start: Union[pd.Timestamp,np.datetime64,pd.Series],
     if isinstance(start, np.datetime64) and isinstance(end, np.datetime64):
         return _yrdif([start], [end], basis)[0]
     elif isinstance(start, pd.Series) and isinstance(end, pd.Series) and start.shape[0] == end.shape[0]:
+        # TODO: Speed up this part using numba?
         return pd.Series(
             Parallel(n_jobs=4)(delayed(_yrdif)(
                 start[i], end[i], basis) for i in range(start.shape[0])),
