@@ -3,3 +3,5 @@
 *.dirlock
 *.egg-info
 .idea
+
+venv/
