@@ -36,7 +36,7 @@ def tabout(data: pd.DataFrame, type: str='reg', showindex: bool=False,
             else:
                 floatfmt += ('',)
     if type == 'reg':
-        data.columns = data.columns.str.replace(r'level_\d*', '')
+        data.columns = data.columns.str.replace(r'level_\d*', '', regex=True)
         return tabulate(
             data, 
             headers=data.columns,
