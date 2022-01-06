@@ -143,6 +143,23 @@ def getdup(data: pd.DataFrame, subset: Union[list,None]=None) -> pd.DataFrame:
     return data.loc[lambda x: x.duplicated(subset=subset, keep=False)]
 
 
+
+def getnodup(data: pd.DataFrame, subset: Union[list,None]=None) -> pd.DataFrame:
+    """Return rows without duplicated values over the subset of variables
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+    subset : list of str, default: None
+
+    Returns
+    -------
+    pandas.DataFrame
+    """
+    return data.loc[lambda x: ~x.duplicated(subset=subset, keep=False)]
+
+
+
 # Count missing values
 def desmiss(data: pd.DataFrame,
             subset: Union[list,None]=None,
@@ -380,6 +397,124 @@ def des(data: Union[pd.Series, pd.DataFrame],
         )
     else:
         return outstr
+
+
+
+def groupby_apply(
+        data: pd.DataFrame,
+        by: list,
+        func: callable,
+        colargs: list,
+        otherargs: tuple,
+        colout: list
+):
+    """
+    Fast groupby-apply using numba
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        Input dataframe
+    by : list of str
+        Names of columns to group by
+    func : callable numba function
+        The numba function to be applied to each group. The first argument is
+        a (2d) numpy array whose columns match colargs. Other arguments are
+        given via otherargs.
+    colargs : list of str
+        Names of columns to be sent to the numba function as a 2d numpy array
+    otherargs : tuple
+        Other arguments (e.g. constant) to be sent to the numba function. Its
+        order should match the arguments of the numba function
+    colout : list of str
+        Names of output columns
+
+    Returns
+    -------
+    pd.DataFrame
+    """
+    assert isinstance(data, pd.DataFrame), 'data is not a pandas.DataFrame'
+    assert isinstance(by, list), 'by is not a list'
+    for i, s in enumerate(by):
+        assert isinstance(s, str), f'The {i+1}th element in by is not a str'
+    assert isinstance(colargs, list), 'colargs is not a list'
+    for i, s in enumerate(colargs):
+        assert isinstance(s, str), f'The {i+1}th element in colargs is not a str'
+    assert isinstance(otherargs, tuple), 'otherargs is not a tuple'
+    assert isinstance(colout, list), 'colout is not a list'
+    for i, s in enumerate(colout):
+        assert isinstance(s, str), f'The {i+1}th element in colout is not a str'
+
+    # Match variable names
+    by_name2id = {x: f'by{i}' for i, x in enumerate(by)}
+    by_id2name = {f'by{i}': x for i, x in enumerate(by)}
+    colargs_name2id = {x: f'colargs{i}' for i, x in enumerate(colargs)}
+    # New column names
+    by_id = [f'by{i}' for i, x in enumerate(by)]
+    colargs_id = [f'colargs{i}' for i, x in enumerate(colargs)]
+    # # Extract data
+    # datatmp = data[by + colargs].sort_values(by)
+    # # Rename
+    # datatmp = datatmp.rename(columns=by_name2id).rename(columns=colargs_name2id)
+    # Extract data and rename columns
+    datatmp = pd.concat([
+        data[by].rename(columns=by_name2id),
+        data[colargs].rename(columns=colargs_name2id)
+    ], axis=1).sort_values(by_id)
+    # Get group id
+    datatmp['grpid'] = datatmp.groupby(by_id).ngroup()
+    # Create a link between by variables and group id
+    grplk = datatmp[by_id + ['grpid']].drop_duplicates()
+    # Apply the lower-level numba groupby function
+    funcresnp = _groupby_apply_np(
+        datatmp[['grpid'] + colargs_id].to_numpy(),
+        func,
+        otherargs
+    )
+    funcres = pd.DataFrame(funcresnp, columns=['grpid'] + colout)
+    funcres['grpid'] = funcres['grpid'].astype('int')
+    # Merge by-vars
+    dataout = grplk.merge(funcres, on='grpid', how='left', validate='1:m')
+    dataout = dataout.rename(columns=by_id2name)
+    dataout = dataout.drop(columns=['grpid'])
+    return dataout
+
+
+
+@njit
+def _groupby_apply_np(data, func, otherargs):
+    """
+    Groupby-Apply using numba given group id
+
+    Parameters
+    ----------
+    data : np.ndarray
+        The first column is group id. Other columns are sent to func as a 2d
+        numpy array.
+    func : callable
+    otherargs: tuple
+
+    Returns
+    -------
+    np.ndarray
+    """
+    ngroups = int(data[-1,0])+1   # Number of groups
+    nrows = data.shape[0]    # Number of rows
+    reslist = []
+    istart = 0
+    for k in range(ngroups):
+        # Find start and end rows of the group
+        # (istart point to the start and iend-1 point to the end
+        iend = istart + 1
+        while iend < nrows and data[iend-1,0] == data[iend,0]:
+            iend += 1
+        res = func(data[istart:iend,1:], *otherargs)
+        reslist.append(np.hstack((np.array([k]), res)))
+        # Move to the next group
+        istart = iend
+    assert len(reslist) == ngroups
+    return reslist
+
 
 
 def _format_to_str(data: Union[float, pd.Series],
