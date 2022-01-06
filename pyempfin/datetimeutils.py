@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from joblib import Parallel, delayed
 from typing import Union
+from numba import njit
 import datetime
 
 def intck(freq: str, fdate: Union[pd.Series,pd.Timestamp], ldate: Union[pd.Series,pd.Timestamp]) -> Union[pd.Series,pd.Timestamp]:
@@ -156,21 +157,201 @@ def monthend(d: pd.Series) -> pd.Series:
     return d.dt.to_period('M').dt.to_timestamp('M')
 
 
-def yrdif(start: Union[pd.Timestamp,np.datetime64,pd.Series],
-          end: Union[pd.Timestamp,np.datetime64,pd.Series],
-          basis: str='ACT/ACT') -> Union[float,pd.Series]:
-    """Mimic the yrdif function in SAS to calculate number of years between two
-    dates.
+# def yrdif(start: Union[pd.Timestamp,datetime.date,pd.Series],
+#           end: Union[pd.Timestamp,datetime.date,pd.Series],
+#           basis: str='ACT/ACT') -> Union[float,np.array]:
+#     """Mimic the yrdif function in SAS to calculate number of years between two
+#     dates (assuming end-of-day).
+#
+#     Parameters
+#     ----------
+#     start : pandas.Timestamp, datetime.date, or a pandas.Series of them
+#         The start date, i.e. the time 00:00.00 on the beginning of the date
+#     end : pandas.Timestamp, datetime.date, or a pandas.Series of them
+#         The end date, i.e. the time 00:00.00 on the beginning of the date
+#     basis : str, default: 'ACT/ACT'
+#         The day count convention to calculate the year fraction according to
+#         the SAS function. Currently only the 'ACT/ACT' convention is
+#         implemented.
+#
+#     Returns
+#     -------
+#     float or a pandas series of float
+#         The number of years between the two days
+#     """
+#     if isinstance(start, pd.Timestamp):
+#         start = np.datetime64(start)
+#     if isinstance(end, pd.Timestamp):
+#         end = np.datetime64(end)
+#     if isinstance(start, np.datetime64) and isinstance(end, np.datetime64):
+#         return _yrdif([start], [end], basis)[0]
+#     elif isinstance(start, pd.Series) and isinstance(end, pd.Series) and start.shape[0] == end.shape[0]:
+#         # TODO: Speed up this part using numba?
+#         return pd.Series(
+#             Parallel(n_jobs=4)(delayed(_yrdif)(
+#                 start[i], end[i], basis) for i in range(start.shape[0])),
+#             index=start.index)
+#
+
+@njit
+def is_leap_year(data: int) -> bool:
+    """Return if a year is a leap year"""
+    return (np.mod(data, 400) == 0) | \
+           ((np.mod(data, 4) == 0) & (np.mod(data, 100) != 0))
+
+
+@njit
+def _datdif_diff_month(start, end):
+    """Return number of days between two dates in different months (assume end-of-day)"""
+    yid = 0
+    mid = 1
+    did = 2
+    dinm_noleap = [0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    dinm_leap = [0, 31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    if is_leap_year(start[yid]):
+        dinm = dinm_leap
+    else:
+        dinm = dinm_noleap
+    outdays = 0
+    # Days in the first month
+    outdays += dinm[start[mid]] - start[did]
+    # Days in the last month
+    outdays += end[did]
+    # Days in between
+    for m in range(start[mid]+1, end[mid]):
+        outdays += dinm[m]
+    return outdays
+
+
+@njit
+def _datdif_same_year(start: Union[list,tuple,np.array], end: Union[list,tuple,np.array]):
+    """Return number of days between two dates in the same year (assume end-of-day)"""
+    yid = 0
+    mid = 1
+    did = 2
+    if start[mid] == end[mid]:
+        # The two days are in the same month
+        return end[did] - start[did]
+    elif start[mid] < end[mid]:
+        return _datdif_diff_month(start, end)
+    elif start[mid] > end[mid]:
+        return -_datdif_diff_month(end, start)
+
+
+@njit
+def _yrdif_same_year(start: Union[list,tuple,np.array], end: Union[list,tuple,np.array]):
+    """Return year fraction between two dates in the same year (assume end-of-day)"""
+    yid = 0
+    mid = 1
+    did = 2
+    ndays = _datdif_same_year(start, end)
+    if is_leap_year(start[yid]):
+        return ndays / 366
+    else:
+        return ndays / 365
+
+
+@njit
+def _datdif_diff_year(start, end):
+    """Return number of days between two dates in different year (assume end-of-day)"""
+    yid = 0
+    outdays = 0
+    # Days in the first year
+    outdays += _datdif_same_year(start, (start[yid], 12, 31))
+    # Days in the last year
+    outdays += _datdif_same_year((end[yid], 1, 1), end) + 1
+    # Days in between
+    for y in range(start[yid] + 1, end[yid]):
+        if is_leap_year(y):
+            outdays += 366
+        else:
+            outdays += 365
+    return outdays
+
+
+@njit
+def _yrdif_diff_year(start, end):
+    """Return year fraction between two dates in different year (assume end-of-day)"""
+    yid = 0
+    yrfrac = 0
+    # Days in the first year
+    yrfrac += _datdif_same_year(start, (start[yid], 12, 31)) / \
+              (366 if is_leap_year(start[yid]) else 365)
+    # Days in the last year
+    yrfrac += (_datdif_same_year((end[yid], 1, 1), end) + 1) / \
+              (366 if is_leap_year(end[yid]) else 365)
+    # Days in between
+    yrfrac += end[yid] - start[yid] - 1
+    return yrfrac
+
+
+@njit
+def _datdif(start: Union[list,tuple,np.array], end: Union[list,tuple,np.array]):
+    """Return the number of days between two dates (assume end-of-day)"""
+    yid = 0
+    mid = 1
+    did = 2
+    if start[yid] == end[yid]:
+        return _datdif_same_year(start, end)
+    elif start[yid] < end[yid]:
+        return _datdif_diff_year(start, end)
+    else:
+        return -_datdif_diff_year(end, start)
+
+
+@njit
+def _yrdif(start: Union[list,tuple,np.array], end: Union[list,tuple,np.array]):
+    """Return the year fraction between two dates (assume end-of-day)"""
+    yid = 0
+    mid = 1
+    did = 2
+    if start[yid] == end[yid]:
+        return _yrdif_same_year(start, end)
+    elif start[yid] < end[yid]:
+        return _yrdif_diff_year(start, end)
+    elif start[yid] > end[yid]:
+        return -_yrdif_diff_year(end, start)
+
+
+@njit
+def _datdif_arr(start: np.array, end: np.array):
+    """Same as _datdif but input is an array of dates"""
+    N = start.shape[0]
+    out = np.zeros(N)
+    out.fill(np.nan)
+    for i in range(N):
+        out[i] = _datdif(start[i,:], end[i,:])
+    return out
+
+
+@njit
+def _yrdif_arr(start: np.array, end: np.array):
+    """Same as _yrdif but input is an array of dates"""
+    N = start.shape[0]
+    out = np.zeros(N)
+    out.fill(np.nan)
+    for i in range(N):
+        out[i] = _yrdif(start[i,:], end[i,:])
+    return out
+
+
+def datdif(
+        start: Union[pd.Series,pd.Timestamp,datetime.date],
+        end: Union[pd.Series,pd.Timestamp,datetime.date],
+        basis: str='ACT/ACT'
+):
+    """Mimic the datdif function (ACT/ACT) in SAS to calculate number of days
+    between two dates (assuming end-of-day).
 
     Parameters
     ----------
-    start : pandas.Timestamp, numpy.datetime64, or a pandas.Series of them
+    start : pandas.Timestamp, datetime.date, or a pandas.Series of them
         The start date, i.e. the time 00:00.00 on the beginning of the date
-    end : pandas.Timestamp, numpy.datetime64, or a pandas.Series of them
+    end : pandas.Timestamp, datetime.date, or a pandas.Series of them
         The end date, i.e. the time 00:00.00 on the beginning of the date
     basis : str, default: 'ACT/ACT'
         The day count convention to calculate the year fraction according to
-        the SAS function. Currently only the 'ACT/ACT' convention is 
+        the SAS function. Currently only the 'ACT/ACT' convention is
         implemented.
 
     Returns
@@ -178,60 +359,67 @@ def yrdif(start: Union[pd.Timestamp,np.datetime64,pd.Series],
     float or a pandas series of float
         The number of years between the two days
     """
-    if isinstance(start, pd.Timestamp):
-        start = np.datetime64(start)
-    if isinstance(end, pd.Timestamp):
-        end = np.datetime64(end)
-    if isinstance(start, np.datetime64) and isinstance(end, np.datetime64):
-        return _yrdif([start], [end], basis)[0]
-    elif isinstance(start, pd.Series) and isinstance(end, pd.Series) and start.shape[0] == end.shape[0]:
-        # TODO: Speed up this part using numba?
-        return pd.Series(
-            Parallel(n_jobs=4)(delayed(_yrdif)(
-                start[i], end[i], basis) for i in range(start.shape[0])),
-            index=start.index)
-
-
-def _yrdif(start: Union[pd.Timestamp,np.datetime64],
-           end: Union[pd.Timestamp,np.datetime64],
-           basis: str) -> float:
-    """Lower level implementation of yrdif for a pair of dates.
-    """
-    if basis in ['ACT/ACT', 'Actual']:
-        if isinstance(start, pd.Timestamp):
-            start = np.datetime64(start)
-        elif pd.isna(start):
-            start = np.datetime64('NaT')
-        if isinstance(end, pd.Timestamp):
-            end = np.datetime64(end)
-        elif pd.isna(end):
-            end = np.datetime64('NaT')
-        if not np.isnat(start) and not np.isnat(end) and start <= end:
-            startyear = np.array([start]).tolist()[0].year
-            endyear = np.array([end-1]).tolist()[0].year
-            if startyear == endyear:
-                res = (end - start) / np.timedelta64(1, 'D')
-            else:
-                res = 0
-                # Days in the first year
-                res += (np.datetime64(str(startyear+1)+'-01-01') - start) / \
-                    np.timedelta64(1, 'D') / \
-                    (366 if is_leap_year(startyear) else 365)
-                # Days in the last year
-                res += (end - np.datetime64(str(endyear-1)+'-12-31')) / \
-                    np.timedelta64(1, 'D') / \
-                    (366 if is_leap_year(endyear) else 365)
-                # Days in the middle
-                res += endyear - startyear - 1
-            return res
-        else:
-            return np.nan
+    singledatetypes = (pd.Timestamp, datetime.date)
+    if isinstance(start, pd.Series) or isinstance(end, pd.Series):
+        if isinstance(start, pd.Series) and isinstance(end, pd.Series):
+            assert start.shape[0] == end.shape[0], 'Start and End has different lengths.'
+            startin = np.vstack((start.dt.year, start.dt.month, start.dt.day)).T
+            endin = np.vstack((end.dt.year, end.dt.month, end.dt.day)).T
+        elif isinstance(start, pd.Series) and isinstance(end, singledatetypes):
+            startin = np.vstack((start.dt.year, start.dt.month, start.dt.day)).T
+            endin = np.tile([end.year, end.month, end.day], (start.shape[0], 1))
+        elif isinstance(start, singledatetypes) and isinstance(end, pd.Series):
+            startin = np.tile([start.year, start.month, start.day], (end.shape[0], 1))
+            endin = np.vstack((end.dt.year, end.dt.month, end.dt.day)).T
+        out = _datdif_arr(startin, endin)
     else:
-        raise ValueError('Invalid basis: ' + str(basis))
+        startin = (start.year, start.month, start.day)
+        endin = (end.year, end.month, end.day)
+        out = _datdif(startin, endin)
+    return out
 
 
-def is_leap_year(data: int) -> bool:
-    """Return if a year is a leap year
+def yrdif(
+        start: Union[pd.Series,pd.Timestamp,datetime.date],
+        end: Union[pd.Series,pd.Timestamp,datetime.date],
+        basis: str = 'ACT/ACT'
+):
+    """Mimic the yrdif function (ACT/ACT) in SAS to calculate number of years between two
+    dates (assuming end-of-day).
+
+    Parameters
+    ----------
+    start : pandas.Timestamp, datetime.date, or a pandas.Series of them
+        The start date, i.e. the time 00:00.00 on the beginning of the date
+    end : pandas.Timestamp, datetime.date, or a pandas.Series of them
+        The end date, i.e. the time 00:00.00 on the beginning of the date
+    basis : str, default: 'ACT/ACT'
+        The day count convention to calculate the year fraction according to
+        the SAS function. Currently only the 'ACT/ACT' convention is
+        implemented.
+
+    Returns
+    -------
+    float or a pandas series of float
+        The number of years between the two days
     """
-    return (np.mod(data, 400) == 0) | \
-           ((np.mod(data, 4) == 0) & (np.mod(data, 100) != 0))
+    singledatetypes = (pd.Timestamp, datetime.date)
+    if isinstance(start, pd.Series) or isinstance(end, pd.Series):
+        if isinstance(start, pd.Series) and isinstance(end, pd.Series):
+            assert start.shape[0] == end.shape[0], 'Start and End has different lengths.'
+            startin = np.vstack((start.dt.year, start.dt.month, start.dt.day)).T
+            endin = np.vstack((end.dt.year, end.dt.month, end.dt.day)).T
+        elif isinstance(start, pd.Series) and isinstance(end, singledatetypes):
+            startin = np.vstack((start.dt.year, start.dt.month, start.dt.day)).T
+            endin = np.tile([end.year, end.month, end.day], (start.shape[0], 1))
+        elif isinstance(start, singledatetypes) and isinstance(end, pd.Series):
+            startin = np.tile([start.year, start.month, start.day], (end.shape[0], 1))
+            endin = np.vstack((end.dt.year, end.dt.month, end.dt.day)).T
+        out = _yrdif_arr(startin, endin)
+    else:
+        startin = (start.year, start.month, start.day)
+        endin = (end.year, end.month, end.day)
+        out = _yrdif(startin, endin)
+    return out
+
+
