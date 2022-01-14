@@ -384,8 +384,18 @@ def yrdif(
         end: Union[pd.Series,pd.Timestamp,datetime.date],
         basis: str = 'ACT/ACT'
 ):
-    """Mimic the yrdif function (ACT/ACT) in SAS to calculate number of years between two
-    dates (assuming end-of-day).
+    """Mimic the yrdif function (ACT/ACT) in SAS to calculate number of years
+    between two dates (assuming end-of-day). If the two days are in the same
+    year, then the total number of days in the year is used as the denominator
+    (366 for leap year and 365 for non-leap year). If the two days are in
+    different years, then the year fraction is calculated year by year. For
+    the first year, the denominator is the total number of days in the first
+    year. For the last year, the denominator is the total number of days in the
+    last year. For each year in between, the year fraction is incremented by 1.
+
+    There is no requirement that the start date must be before the end date. If
+    the start date is after the end date, the result is a negative number whose
+    absolute value is the result if the start and end date are swapped.
 
     Parameters
     ----------
