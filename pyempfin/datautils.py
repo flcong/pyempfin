@@ -164,6 +164,7 @@ def getnodup(data: pd.DataFrame, subset: Union[list,None]=None) -> pd.DataFrame:
 def desmiss(data: pd.DataFrame,
             subset: Union[list,None]=None,
             not_missing: bool=False,
+            remove_zero: bool=False,
             sort: Union[str,None]='descending') -> pd.DataFrame:
     """Return a description of missing (or non-missing) observations in the data set
 
@@ -172,6 +173,7 @@ def desmiss(data: pd.DataFrame,
     data : pandas.DataFrame
     subset : list of str, default: None
     not_missing : bool, default: False
+    remove_zero : bool, default: False
     sort : {'descending', 'ascending', None}, default: 'descending'
 
     Returns
@@ -182,7 +184,7 @@ def desmiss(data: pd.DataFrame,
         subset = data.columns
     if not_missing:
         out = pd.DataFrame({
-            '# not NaN': data[subset].apply(lambda x: (~x.isna()).sum())
+            '# not NaN': data[subset].apply(lambda x: (~_is_missing(x)).sum())
         })
         out['% not NaN'] = out['# not NaN'].apply(
             lambda x: '{:.2f}%'.format(x / data.shape[0] * 100)
@@ -190,7 +192,7 @@ def desmiss(data: pd.DataFrame,
         sort_var = '# not NaN'
     else:
         out = pd.DataFrame({
-            '# NaN': data[subset].apply(lambda x: x.isna().sum())
+            '# NaN': data[subset].apply(lambda x: _is_missing(x).sum())
         })
         out['% NaN'] = out['# NaN'].apply(
             lambda x: '{:.2f}%'.format(x / data.shape[0] * 100)
@@ -206,8 +208,13 @@ def desmiss(data: pd.DataFrame,
         pass
     else:
         raise ValueError('Invalid value for argument sort')
+    # Keep all or not
+    if remove_zero:
+        out = out.loc[lambda x: x.max(axis=1) > 0]
     return out
 
+def _is_missing(data: Union[pd.Series, pd.DataFrame]) -> Union[pd.Series, pd.DataFrame]:
+    return data.isna() | (data == '')
 
 # Mimic the coalesce function in SAS
 def coalesce(*argv) -> pd.Series:
@@ -379,7 +386,7 @@ def des(data: Union[pd.Series, pd.DataFrame],
     outstr = pd.concat([outstr_cnt, outstr_wocnt], axis=0)
     # Add NA counts
     if not dropna:
-        na_count = data.isna().sum(axis=0)
+        na_count = _is_missing(data).sum(axis=0)
         na_pct = na_count / out.loc['count'] * 100
         outstr.loc['#NA'] = _format_to_str(na_count, ',d')
         outstr.loc['%NA'] = _format_to_str(na_pct, '.2f', suffix='%')
