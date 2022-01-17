@@ -1,9 +1,12 @@
 import numpy as np
 import pandas as pd
 from functools import partial
-from typing import Union
-from numba import njit
+from typing import Union, List, Tuple
+from numba import njit, generated_jit
+import numba
 
+
+ARR_TYPES = (numba.types.Array)
 
 
 def winsor(datacol: pd.Series, lower: float, upper: float) -> pd.Series:
@@ -406,14 +409,84 @@ def des(data: Union[pd.Series, pd.DataFrame],
         return outstr
 
 
+@njit
+def _float_to_int_numba(arr):
+    out = np.ones_like(arr, 'int')
+    for i in range(arr.shape[0]):
+        out[i] = int(arr[i])
+    return out
+
+
+@njit
+def _range_stat(datalist, func, interval, ncolout, *args):
+    timearr = datalist[0]
+    data = datalist[1]
+    out = np.zeros((data.shape[0], ncolout))
+    out.fill(np.nan)
+    istart = 0
+    iend = 1
+    for i in range(data.shape[0]):
+        while timearr[istart,0] < interval[0] + timearr[i,0]:
+            istart += 1
+        while iend < data.shape[0] and timearr[iend,0] <= interval[1] + timearr[i,0]:
+            iend += 1
+        out[i,:] = func([data[istart:iend,:]], *args)[0]
+    return np.hstack((timearr, out))
+
+
+
+def rangestat(
+        data: pd.DataFrame,
+        by: List[str],
+        timevar: str,
+        interval: Tuple[Union[int,float], Union[int,float]],
+        func: callable,
+        colargs: List[str],
+        otherargs: tuple,
+        colout: List[str]
+) -> pd.DataFrame:
+
+    assert ndup(data, by+[timevar]) == 0, \
+        'data has duplicates over by and timevar'
+    assert not data[timevar].isna().any(), 'Column timevar has NaN'
+    assert isinstance(timevar, str), 'timevar is not a str'
+    assert isinstance(interval, tuple), 'interval is not a tuple'
+    assert len(interval) == 2, 'interval does not have size 2'
+    for i, s in enumerate(interval):
+        assert isinstance(s, (int, float)), \
+            f'The {i+1}th element in interval is not a int or float'
+    assert interval[0] <= interval[1], \
+        f'interval[0] is not less than or equal to interval[1]'
+
+    # Sort by by and timevar
+    data.sort_values(by + [timevar])
+    # Convert dtype (numba only supports list with homogeneous types)
+    timedtype = data[timevar].to_numpy().dtype
+    colargsdtype = data[colargs].to_numpy().dtype
+    if timedtype != colargsdtype:
+        if np.issubdtype(timedtype, np.integer) and \
+            np.issubdtype(colargsdtype, np.floating):
+            data[timevar] = data[timevar].astype('float')
+    out = groupby_apply(
+        data=data,
+        by=by,
+        func=_range_stat,
+        colargs=[[timevar], colargs],
+        otherargs=(func, interval, len(colout), *otherargs),
+        colout=[timevar] + colout
+    )
+    out[timevar] = out[timevar].astype('int64')
+
+    return out
+
 
 def groupby_apply(
         data: pd.DataFrame,
-        by: list,
+        by: List[str],
         func: callable,
-        colargs: list,
+        colargs: Union[List[str],List[List[str]]],
         otherargs: tuple,
-        colout: list
+        colout: List[str]
 ):
     """
     Fast groupby-apply using numba
@@ -425,11 +498,14 @@ def groupby_apply(
     by : list of str
         Names of columns to group by
     func : callable numba function
-        The numba function to be applied to each group. The first argument is
-        a (2d) numpy array whose columns match colargs. Other arguments are
-        given via otherargs.
-    colargs : list of str
-        Names of columns to be sent to the numba function as a 2d numpy array
+        The numba function to be applied to each group. The first argument
+        is a list (of length `len(colargs)`) 2d ndarrays from columns specified in colargs.
+        Other arguments are given via otherargs. The return value is also a
+        2d numpy array.
+    colargs :  list of list of str
+        Names of columns to be sent to the numba function. Then `len(colargs)` 2d
+        ndarrays selected by these column names are sent to `func` as the
+        first `len(colargs)` arguments.
     otherargs : tuple
         Other arguments (e.g. constant) to be sent to the numba function. Its
         order should match the arguments of the numba function
@@ -441,12 +517,19 @@ def groupby_apply(
     pd.DataFrame
     """
     assert isinstance(data, pd.DataFrame), 'data is not a pandas.DataFrame'
+    assert not data[by].isna().any(None), 'by columns have NaN'
     assert isinstance(by, list), 'by is not a list'
     for i, s in enumerate(by):
         assert isinstance(s, str), f'The {i+1}th element in by is not a str'
     assert isinstance(colargs, list), 'colargs is not a list'
-    for i, s in enumerate(colargs):
-        assert isinstance(s, str), f'The {i+1}th element in colargs is not a str'
+    for k, l in enumerate(colargs):
+        assert isinstance(l, list), \
+            f'colargs is a list of list of str, but the {k+1}th element is' \
+            f'not a list'
+        for i, s in enumerate(l):
+            assert isinstance(s, str), \
+                f'colargs is a list of list of str, but the {i+1}th element' \
+                f'in the {k+1}th list is not a str'
     assert isinstance(otherargs, tuple), 'otherargs is not a tuple'
     assert isinstance(colout, list), 'colout is not a list'
     for i, s in enumerate(colout):
@@ -455,31 +538,44 @@ def groupby_apply(
     # Match variable names
     by_name2id = {x: f'by{i}' for i, x in enumerate(by)}
     by_id2name = {f'by{i}': x for i, x in enumerate(by)}
-    colargs_name2id = {x: f'colargs{i}' for i, x in enumerate(colargs)}
+    colargs_name2id = [
+        {x: f'colargs{k}_{i}' for i, x in enumerate(colarg)}
+        for k, colarg in enumerate(colargs)
+    ]
     # New column names
     by_id = [f'by{i}' for i, x in enumerate(by)]
-    colargs_id = [f'colargs{i}' for i, x in enumerate(colargs)]
+    colargs_id = [
+        [f'colargs{k}_{i}' for i, x in enumerate(colarg)]
+        for k, colarg in enumerate(colargs)
+    ]
     # # Extract data
     # datatmp = data[by + colargs].sort_values(by)
     # # Rename
     # datatmp = datatmp.rename(columns=by_name2id).rename(columns=colargs_name2id)
     # Extract data and rename columns
-    datatmp = pd.concat([
-        data[by].rename(columns=by_name2id),
-        data[colargs].rename(columns=colargs_name2id)
+    datatmp = pd.concat([data[by].rename(columns=by_name2id)] + [
+        data[colarg].rename(columns=colargs_name2id[k])
+        for k, colarg in enumerate(colargs)
     ], axis=1).sort_values(by_id)
     # Get group id
     datatmp['grpid'] = datatmp.groupby(by_id).ngroup()
     # Create a link between by variables and group id
     grplk = datatmp[by_id + ['grpid']].drop_duplicates()
     # Apply the lower-level numba groupby function
-    funcresnp = _groupby_apply_np(
-        datatmp[['grpid'] + colargs_id].to_numpy(),
+    # NOTE: For pandas dataframe, selecting a single column returns a C-type
+    # array, but selecting multiple columns return a Fortran-type array
+    funcresnp = _groupby_apply_nb(
+        datatmp['grpid'].to_numpy(),
+        [np.ascontiguousarray(datatmp[colarg_id].to_numpy())
+         for colarg_id in colargs_id],
         func,
         otherargs
     )
-    funcres = pd.DataFrame(funcresnp, columns=['grpid'] + colout)
-    funcres['grpid'] = funcres['grpid'].astype('int')
+    funcres = pd.concat([
+        pd.DataFrame(x, columns=['grpid'] + colout) for x in funcresnp
+    ], axis=0).reset_index(drop=True)
+    # funcres = pd.DataFrame(np.vstack(funcresnp), columns=['grpid'] + colout)
+    # funcres['grpid'] = funcres['grpid'].astype('int')
     # Merge by-vars
     dataout = grplk.merge(funcres, on='grpid', how='left', validate='1:m')
     dataout = dataout.rename(columns=by_id2name)
@@ -487,40 +583,59 @@ def groupby_apply(
     return dataout
 
 
-
 @njit
-def _groupby_apply_np(data, func, otherargs):
+def _groupby_apply_nb(
+        grpids: np.ndarray,
+        datalist: List[np.ndarray],
+        func,
+        otherargs
+):
     """
     Groupby-Apply using numba given group id
 
     Parameters
     ----------
-    data : np.ndarray
-        The first column is group id. Other columns are sent to func as a 2d
-        numpy array.
+    grpids : 1d np.ndarray
+        Group id
+    datalist : list of 2d np.ndarray
+        This list of arrays will be sent to func as the first argument
     func : callable
     otherargs: tuple
 
     Returns
     -------
-    np.ndarray
+    np.ndarray of type float
     """
-    ngroups = int(data[-1,0])+1   # Number of groups
-    nrows = data.shape[0]    # Number of rows
+
+
+    ngroups = int(grpids[-1])+1   # Number of groups
+    nrows = grpids.shape[0]    # Number of rows
     reslist = []
     istart = 0
     for k in range(ngroups):
         # Find start and end rows of the group
         # (istart point to the start and iend-1 point to the end
         iend = istart + 1
-        while iend < nrows and data[iend-1,0] == data[iend,0]:
+        while iend < nrows and grpids[iend-1] == grpids[iend]:
             iend += 1
-        res = func(data[istart:iend,1:], *otherargs)
-        reslist.append(np.hstack((np.array([k]), res)))
+        res = func([data[istart:iend,:] for data in datalist], *otherargs)
+        assert _is_2darray(res), 'The func must return a 2d ndarray'
+        reslist.append(np.hstack((
+            np.array([[k]]*res.shape[0]), res
+        )))
         # Move to the next group
         istart = iend
     assert len(reslist) == ngroups
     return reslist
+
+
+
+@generated_jit(nopython=True)
+def _is_2darray(data):
+    if isinstance(data, ARR_TYPES) and data.ndim == 2:
+        return lambda data: True
+    else:
+        return lambda data: False
 
 
 
