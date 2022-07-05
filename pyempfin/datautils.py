@@ -390,7 +390,7 @@ def des(data: Union[pd.Series, pd.DataFrame],
     # Add NA counts
     if not dropna:
         na_count = _is_missing(data).sum(axis=0)
-        na_pct = na_count / out.loc['count'] * 100
+        na_pct = na_count / data.shape[0] * 100
         outstr.loc['#NA'] = _format_to_str(na_count, ',d')
         outstr.loc['%NA'] = _format_to_str(na_pct, '.2f', suffix='%')
     if isinstance(data, pd.Series):

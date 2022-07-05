@@ -16,6 +16,13 @@ test()
 
 class TestUtils:
 
+    def test_des(self):
+        df = pd.DataFrame({
+            'x': [0, 1, np.nan, 3]
+        })
+        dftest = pf.des(df)
+        assert dftest['%NA'].iloc[0] == '25.00%'
+
     def test_groupby_apply_nb(self):
         testarr = np.hstack((
             np.array([0]*15 + [1]*10)[:, np.newaxis],
