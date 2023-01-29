@@ -14,7 +14,10 @@ from functools import partial
 def estbeta(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: dict,
             window: tuple, minobs: int, hasconst: bool, ncore: int=cpu_count()
             ) -> pd.DataFrame:
-    """Estimate beta given a list of models.
+    """Estimate beta given a list of models. leftdata is a pandas.DataFrame of
+    dependent variables (returns) with MultiIndex representing assets and periods.
+    rightdata is a pandas.DataFrame with index representing periods and columns
+    of independent variables (factors) to estimate beta.
 
     Parameters:
     ----------
@@ -72,7 +75,10 @@ def estbeta(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: dict,
 def estbeta1m(leftdata: pd.Series, rightdata: pd.DataFrame, model: list,
               window: tuple, minobs: int, hasconst: bool, ncore: int=cpu_count()
               ) -> pd.DataFrame:
-    """Estimate beta for a single model
+    """Estimate beta for a single model. leftdata is a pandas.Series of
+    dependent variable (returns) with MultiIndex representing assets and periods.
+    rightdata is a pandas.DataFrame with index representing periods and columns
+    of independent variables (factors) to estimate beta.
 
     Parameters
     ----------
@@ -83,10 +89,11 @@ def estbeta1m(leftdata: pd.Series, rightdata: pd.DataFrame, model: list,
         The index represents time periods and is the same as the level 1 of
         the index of `leftdata`.
     model : list
-        The elements should be in the columns of rightdata.
+        The elements should be a subset of column names of rightdata.
     window : tuple of 2 integers
         The period used to estimate beta. For example, `(-24,-1)` means using
-        data between `t-24` and `t-1` to estimate beta at time `t`.
+        data between `t-24` and `t-1` (both inclusive) to estimate beta at
+        time `t`. The first element cannot be greater than the second one
     minobs : int
         Minimum number of observations to estimate beta
     hasconst : bool
@@ -101,15 +108,14 @@ def estbeta1m(leftdata: pd.Series, rightdata: pd.DataFrame, model: list,
         beta.
     """
     # Check arguments
-    assert isinstance(leftdata, pd.Series)
-    assert isinstance(rightdata, pd.DataFrame)
-    assert set(model).issubset(set(rightdata.columns))
-    # Remove NaN
-    leftdata = leftdata.dropna()
-    rightdata = rightdata.dropna(how='all')
-    # Construct matrix
-    leftmat = leftdata.unstack(level=0).sort_index()
-    rightdata = rightdata.reindex(leftmat.index)
+    assert isinstance(leftdata, pd.Series), 'leftdata is not a pandas.Series'
+    assert isinstance(rightdata, pd.DataFrame), 'rightdata is not a pandas.DataFrame'
+    assert set(model).issubset(set(rightdata.columns)), 'elements of model is not a subset of columns of rightdata'
+    assert len(window) == 2, 'window does not have length 2'
+    assert window[0] <= window[1], 'start time is after end time for window'
+    # Drop NaN and construct matrix for return
+    leftmat = leftdata.dropna().unstack(level=0).sort_index()
+    rightdata = rightdata.dropna(how='all').reindex(leftmat.index)
     # Construct X
     exog = rightdata[model].to_numpy()
     out = pd.DataFrame(
