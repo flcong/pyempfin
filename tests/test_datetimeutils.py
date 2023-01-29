@@ -31,3 +31,33 @@ def test_yrdif():
     )
 
     assert_series_equal(df1['ttm'], df1['ttm_corr'], check_names=False)
+
+def test_monthstart():
+    df = pd.DataFrame({
+        'test': [
+            '1990-01-01', '1990-01-31', '2000-02-29', '2000-06-30', '2000-11-01',
+            '2000-11-15'
+        ],
+        'correct': [
+            '1990-01-01', '1990-01-01', '2000-02-01', '2000-06-01', '2000-11-01',
+            '2000-11-01'
+        ]
+    })
+    df['test'] = pd.to_datetime(df['test'])
+    df['correct'] = pd.to_datetime(df['correct'])
+    assert_series_equal(monthstart(df['test']), df['correct'], check_names=False)
+
+def test_monthend():
+    df = pd.DataFrame({
+        'test': [
+            '1990-01-01', '1990-01-31', '2000-02-29', '2000-06-30', '2000-11-01',
+            '2000-11-15'
+        ],
+        'correct': [
+            '1990-01-31', '1990-01-31', '2000-02-29', '2000-06-30', '2000-11-30',
+            '2000-11-30'
+        ]
+    })
+    df['test'] = pd.to_datetime(df['test'])
+    df['correct'] = pd.to_datetime(df['correct'])
+    assert_series_equal(monthend(df['test']), df['correct'], check_names=False)

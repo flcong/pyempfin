@@ -136,8 +136,8 @@ def monthstart(d: pd.Series) -> pd.Series:
         A pandas series of pandas datetime containing the first dates of each
         month.
     """
-    return d.astype('datetime64[M]')
-
+    # return d.astype('datetime64[M]')
+    return d + pd.offsets.MonthEnd(-1) + pd.offsets.Day(1)
 
 # Return month end
 def monthend(d: pd.Series) -> pd.Series:
@@ -154,8 +154,8 @@ def monthend(d: pd.Series) -> pd.Series:
         A pandas series of pandas datetime containing the last dates of each
         month.
     """
-    return d.dt.to_period('M').dt.to_timestamp('M')
-
+    # return d.dt.to_period('M').dt.to_timestamp('M')
+    return d + pd.tseries.offsets.MonthBegin() - pd.offsets.Day(1)
 
 # def yrdif(start: Union[pd.Timestamp,datetime.date,pd.Series],
 #           end: Union[pd.Timestamp,datetime.date,pd.Series],
