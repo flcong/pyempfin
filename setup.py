@@ -12,8 +12,8 @@ setup(name='pyempfin',
           'numpy',
           'pandas',
           'numba',
-          'joblib',
           'tabulate',
+          'joblib',
           'scipy'
       ],
       zip_safe=False)
