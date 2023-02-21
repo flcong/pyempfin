@@ -1,7 +1,10 @@
 import pytest
 import numpy as np
 from pyempfin.xsap import _winsor_njit, _newey_njit, estbeta, estbeta1m
+from pyempfin.xsap import format_table, fmreg
 import pandas as pd
+from pandas.testing import assert_frame_equal
+import re
 
 def checkarr(arr: np.ndarray, orgarr: np.ndarray,
              lower: float, upper: float) -> bool:
@@ -57,10 +60,21 @@ def test_newey(ff):
         stderr2[i] = _newey_njit(data, int(ffres['lag'].iloc[i]))
     assert (np.abs(stderr2 - ffres['stderr'].to_numpy())<1e-5).all()
 
-def test_estbeta1m(ff, xsstk):
+def test_estbeta1m_fmreg(ff, xsstk):
+    # estbeta1m and Stata's rangestat are different. estbeta1m first convert
+    # long-form panel data into wide form (rows are periods and columns are
+    # stocks) filling missing returns as NaN. Then, estimate beta for each
+    # column in rolling windows. As a result, for some stock and some period,
+    # even if its return is missing, beta can still be calculated as long as
+    # there are enough observations in the look-back period. However in such
+    # case, rangestat will not estimate beta. As a result, when comparing the
+    # results, we have to remove those cases where rangstat does not calculate.
+    # The easiest way is to start from the panel data containing returns and
+    # left join with beta estimates.
+    # ---------- Test for beta estimation
     model = ['mktrf', 'smb', 'hml', 'umd']
-    l1 = model
-    l2 = ['b_' + x for x in model]
+    cols_test = model
+    cols_targ = ['b_' + x for x in model]
     beta1 = estbeta1m(
         leftdata=xsstk['exret'],
         rightdata=ff,
@@ -97,20 +111,95 @@ def test_estbeta1m(ff, xsstk):
     betares3 = pd.read_stata('testbetares3.dta')
     betares3['datemn'] = betares3['datemn'].dt.to_period('M')
     betares3.set_index(['permno', 'datemn'], inplace=True)
-    c1 = xsstk[['exret']].join(beta1) \
-        .join(betares1) \
-        .dropna(subset=l1 + l2)
-    c2 = xsstk[['exret']].join(beta2) \
-        .join(betares2) \
-        .dropna(subset=l1 + l2)
+    comp1 = xsstk[['exret']].join(beta1[cols_test]).join(betares1[cols_targ])
+    comp2 = xsstk[['exret']].join(beta2[cols_test]).join(betares2[cols_targ])
+    comp3 = xsstk[['exret']].join(beta3[cols_test]).join(betares3[cols_targ])
     # Check missing values
-    assert c1.isna().any(axis=1).sum() == 0
-    assert c2.isna().any(axis=1).sum() == 0
-    assert beta3[l1].shape == betares3[l2].shape
+    assert comp1[cols_test+cols_targ].isna().sum().std() == 0
+    assert comp2[cols_test+cols_targ].isna().sum().std() == 0
+    assert comp3[cols_test+cols_targ].isna().sum().std() == 0
+    # Drop NA
+    comp1.dropna(subset=cols_test + cols_targ, inplace=True)
+    comp2.dropna(subset=cols_test + cols_targ, inplace=True)
+    comp3.dropna(subset=cols_test + cols_targ, inplace=True)
     # Check values
-    assert (np.abs(c1[l1].to_numpy() - c1[l2].to_numpy()) < 1e-5).all()
-    assert (np.abs(c2[l1].to_numpy() - c2[l2].to_numpy()) < 1e-5).all()
-    assert (np.abs(beta3[l1].to_numpy() - betares3[l2].to_numpy()) < 1e-5).all()
+    assert (np.abs(
+        comp1[cols_test].to_numpy() - comp1[cols_targ].to_numpy()
+    ) < 1e-5).all()
+    assert (np.abs(
+        comp2[cols_test].to_numpy() - comp2[cols_targ].to_numpy()
+    ) < 1e-5).all()
+    assert (np.abs(
+        comp3[cols_test].to_numpy() - comp3[cols_targ].to_numpy()
+    ) < 1e-5).all()
+    # ---------- Test for Fama-MacBeth regression
+    models = [
+        ['exret', 'mktrf'],
+        ['exret', 'mktrf', 'smb', 'hml'],
+        ['exret', 'mktrf', 'smb', 'hml', 'umd'],
+    ]
+    # Test result
+    fmres1 = fmreg(
+        leftdata=comp1[['exret']],
+        rightdata=comp1[cols_test],
+        models=models,
+        maxlag=5,
+        roworder=['mktrf', 'smb', 'hml', 'umd'],
+        hasconst=True,
+        scale=1,
+        getlambda=False,
+        estfmt=('.7f', '.7f'),
+    )
+    # Result from Stata's xtfmb
+    fmres1c = pd.read_stata('testfmreg1.dta')
+    fmres1c['model'] = fmres1c['model'].astype('int') - 1
+    fmres1c['indepvar'] = fmres1c['indepvar'].replace({'_cons': 'Constant'})
+    fmres1c['indepvar'] = fmres1c['indepvar'].str.replace('b_', '')
+    fmres1c.set_index(['model', 'indepvar'], inplace=True)
+    # Test
+    for m in range(len(models)):
+        indepvars = models[m][1:]
+        for v in indepvars + ['Constant']:
+            i = fmres1[''].to_list().index(v)
+            print(f'{i}, {v}')
+            # Test coefficient
+            assert np.abs(
+                fmres1c.loc[m].loc[v]['b'] -
+                float(re.match('^([0-9\.\-]*)', fmres1[m].iloc[i]).group(1))
+            ) < 1e-6
+            # Test t-stat
+            assert np.abs(
+                fmres1c.loc[m].loc[v]['t'] -
+                float(re.match(r'^\(([0-9\.\-]*)\)', fmres1[m].iloc[i+1]).group(1))
+            ) < 1e-6
+    # Test scale
+    fmres1 = fmreg(
+        leftdata=comp1[['exret']],
+        rightdata=comp1[cols_test],
+        models=models,
+        maxlag=5,
+        roworder=['mktrf', 'smb', 'hml', 'umd'],
+        hasconst=True,
+        scale=100,
+        getlambda=False,
+        estfmt=('.7f', '.7f'),
+    )
+    for m in range(len(models)):
+        indepvars = models[m][1:]
+        for v in indepvars + ['Constant']:
+            i = fmres1[''].to_list().index(v)
+            print(f'{i}, {v}')
+            # Test coefficient
+            assert np.abs(
+                fmres1c.loc[m].loc[v]['b']*100 -
+                float(re.match('^([0-9\.\-]*)', fmres1[m].iloc[i]).group(1))
+            ) < 1e-6
+            # Test t-stat
+            assert np.abs(
+                fmres1c.loc[m].loc[v]['t'] -
+                float(re.match(r'^\(([0-9\.\-]*)\)', fmres1[m].iloc[i+1]).group(1))
+            ) < 1e-6
+
 
 def test_estbeta(ff, xsstk):
     # Index
@@ -168,13 +257,18 @@ def test_estbeta(ff, xsstk):
 
 
 
-# def test_fmreg(ff, xsstk):
-#     # Estimate a series of models
-#     models = [
-#         ['exret', 'mktrf'],
-#         ['exret', 'mktrf', 'smb', 'hml'],
-#         ['exret', 'mktrf', 'smb', 'hml', 'umd']
-#     ]
+def test_format_table():
+    df = pd.DataFrame({
+        'intcol': [1000, 101, 2123432, 0],
+        'floatcol': [0.1234934, 0.2342341234, 0.24238, 0.23427423],
+    }, index=[f'Row {i}' for i in range(4)])
+    sumstat = format_table(df, 4)
+    df_corr = pd.DataFrame({
+        'intcol': ['1,000', '101', '2,123,432', '0'],
+        'floatcol': ['0.1235', '0.2342', '0.2424', '0.2343'],
+    }, index=df.index)
+    assert_frame_equal(sumstat, df_corr)
+
 
 # if __name__ == '__main__':
 #     arr = np.arange(0, 101)

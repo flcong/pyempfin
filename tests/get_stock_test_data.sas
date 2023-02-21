@@ -1,4 +1,4 @@
-* Generate test data set for PyXS;
+* Generate test data set for pyempfin;
 * Select monthly returns of some stocks and the Fama-French three factors;
 
 libname crsp "E:\MyCloud\Dropbox\Research\Data\wrds\crsp\20200623";
@@ -27,7 +27,7 @@ proc sql;
 	order by a.ticker, a.date;
 quit;
 
-proc export data=msf3 outfile="E:\MyCloud\Dropbox\Research\Techniques\Github\PyXS\PyXS\tests\stktestdata.csv" dbms=csv replace;
+proc export data=msf3 outfile="E:\MyCloud\Dropbox\Research\Techniques\Github\pyempfin\pyempfin\tests\stktestdata.csv" dbms=csv replace;
 run;
 
 data ff; set ff.factors_monthly;
@@ -35,14 +35,13 @@ data ff; set ff.factors_monthly;
 	where 2015<=year(date)<=2020;
 run;
 
-proc export data=ff outfile="E:\MyCloud\Dropbox\Research\Techniques\Github\PyXS\PyXS\tests\ff.csv" dbms=csv replace;
+proc export data=ff outfile="E:\MyCloud\Dropbox\Research\Techniques\Github\pyempfin\pyempfin\tests\ff.csv" dbms=csv replace;
 run;
 
 
 * Test data for FM regression
 
 * Get CRSP data;
-* Stocks: MSFT (10107), SVMK (18097), ZM (18484), JPM (47896), FDC (15703);
 data xsmsf; set crsp.msf;
 	keep date permno ret;
 	where 2017<=year(date)<=2019 and not missing(ret);
@@ -64,5 +63,5 @@ proc sql;
 	order by a.permno, a.date;
 quit;
 
-proc export data=xsmsf3 outfile="E:\MyCloud\Dropbox\Research\Techniques\Github\PyXS\PyXS\tests\xsstktestdata.csv" dbms=csv replace;
+proc export data=xsmsf3 outfile="E:\MyCloud\Dropbox\Research\Techniques\Github\pyempfin\pyempfin\tests\xsstktestdata.csv" dbms=csv replace;
 run;
