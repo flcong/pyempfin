@@ -108,11 +108,16 @@ def estbeta1m(leftdata: pd.Series, rightdata: pd.DataFrame, model: list,
         beta.
     """
     # Check arguments
-    assert isinstance(leftdata, pd.Series), 'leftdata is not a pandas.Series'
-    assert isinstance(rightdata, pd.DataFrame), 'rightdata is not a pandas.DataFrame'
-    assert set(model).issubset(set(rightdata.columns)), 'elements of model is not a subset of columns of rightdata'
-    assert len(window) == 2, 'window does not have length 2'
-    assert window[0] <= window[1], 'start time is after end time for window'
+    if not isinstance(leftdata, pd.Series):
+        raise TypeError('leftdata is not a pandas.Series')
+    if not isinstance(rightdata, pd.DataFrame):
+        raise TypeError('rightdata is not a pandas.DataFrame')
+    if not set(model).issubset(set(rightdata.columns)):
+        raise ValueError('elements of model is not a subset of columns of rightdata')
+    if not len(window) == 2:
+        raise ValueError('window does not have length 2')
+    if not window[0] <= window[1]:
+        raise ValueError('start time is after end time for window')
     # Drop NaN and construct matrix for return
     leftmat = leftdata.dropna().unstack(level=0).sort_index()
     rightdata = rightdata.dropna(how='all').reindex(leftmat.index)
@@ -247,35 +252,63 @@ def fmreg(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: list,
         NOT IMPLEMENTED YET
     """
     # Check arguments
-    assert isinstance(leftdata, pd.DataFrame)
-    assert isinstance(rightdata, pd.DataFrame)
+    if not isinstance(leftdata, pd.DataFrame):
+        raise TypeError('leftdata is not a pandas.DataFrame')
+    if not isinstance(rightdata, pd.DataFrame):
+        raise TypeError('rightdata is not a pandas.DataFrame')
     if isinstance(leftdata.columns, pd.MultiIndex):
-        assert leftdata.columns.nlevels == 2
+        if not leftdata.columns.nlevels == 2:
+            raise ValueError('if leftdata has a MultiIndex column names, '
+                             'its level must be 2')
     else:
-        assert isinstance(leftdata.columns, pd.Index)
+        if not isinstance(leftdata.columns, pd.Index):
+            raise ValueError('if leftdata does not have a MultiIndex column '
+                             'names, it must be a pandas.Index')
     if isinstance(rightdata.columns, pd.MultiIndex):
-        assert rightdata.columns.nlevels == 2
-        assert set(roworder).issubset(set(rightdata.columns.levels[1]))
+        if not rightdata.columns.nlevels == 2:
+            raise ValueError('if rightdata has a MultiIndex column names, '
+                             'its level must be 2')
+        if not set(roworder).issubset(set(rightdata.columns.levels[1])):
+            raise ValueError('roworder must be a subset of level 1 of columns '
+                             'of rightdata if its column names is a MultiIndex')
     else:
-        assert isinstance(rightdata.columns, pd.Index)
-        assert set(roworder).issubset(set(rightdata.columns))
-    assert isinstance(hasconst, bool)
-    assert (winsorcuts is None) or (
-            isinstance(winsorcuts, tuple) and
-            (len(winsorcuts) == 2) and (0<=winsorcuts[0]<=1) and
-            (0<=winsorcuts[1]<=1) and (winsorcuts[0]<winsorcuts[1]))
-    assert isinstance(winsorindeponly, bool)
-    assert isinstance(estfmt, tuple) and len(estfmt) == 2
+        if not isinstance(rightdata.columns, pd.Index):
+            raise ValueError('if rightdata does not have a MultiIndex column '
+                             'names, it must be a pandas.Index')
+        if not set(roworder).issubset(set(rightdata.columns)):
+            raise ValueError('roworder must be a subset of columns of rightdata')
+    if not isinstance(hasconst, bool):
+        raise ValueError('hasconst must be a boolean')
+    if winsorcuts is not None:
+        if not isinstance(winsorcuts, tuple):
+            raise ValueError('winsorcuts must be a tuple or None')
+        if not (len(winsorcuts) == 2):
+            raise ValueError('winsorcuts must be a tuple of length 2')
+        if not (0<=winsorcuts[0]<=1):
+            raise ValueError('winsorcuts[0] must be between 0 and 1')
+        if not (0<=winsorcuts[1]<=1):
+            raise ValueError('winsorcuts[1] must be between 0 and 1')
+        if not (winsorcuts[0]<winsorcuts[1]):
+            raise ValueError('winsorcuts[0] must be less than winsorcuts[1]')
+    if not isinstance(winsorindeponly, bool):
+        raise ValueError('winsorindeponly must be a boolean')
+    if not (isinstance(estfmt, tuple) and len(estfmt) == 2):
+        raise ValueError('estfmt must be a tuple with length 2')
     for s in estfmt:
-        assert isinstance(s, str)
+        if not isinstance(s, str):
+            raise ValueError(f'{s} in estfmt is not a str')
 
     estout = FMResult()
     for model in models:
         # Check arguments
-        assert isinstance(model, list) and len(model) >= 2
-        assert model[0] in leftdata.columns, 'model[0] not in columns of leftdata'
-        assert set(model[1:]).issubset(set(rightdata.columns.to_flat_index())), \
-            'model[1:] not in columns of rightdata'
+        if not (isinstance(model, list) and len(model) >= 2):
+            raise ValueError(f'The model ({model}) is not a list of length 2')
+        if model[0] not in leftdata.columns:
+            raise ValueError(f'model[0] of the model ({model}) not in columns'
+                             f' of leftdata')
+        if not set(model[1:]).issubset(set(rightdata.columns.to_flat_index())):
+            raise ValueError(f'model[1:] of the model ({model}) not in columns'
+                             f' of rightdata')
         # ---------- Prepare LHS data set
         if isinstance(leftdata.columns, pd.MultiIndex):
             # Note that model[0] is not a list, so double brackets ensure that a
@@ -469,7 +502,8 @@ def tscssum(data: pd.DataFrame, subset: Union[list,None]=None,
     Parameters
     ----------
     data : pandas.DataFrame
-        The data table to generate summary statistics
+        The DataFrame to generate summary statistics. Its index must be a
+        MultiIndex with level 0 individuals and level 1 time periods.
     subset : list of str, default: None
         The list of column names to generate summary statistics. If None, all
         columns are used.
@@ -485,7 +519,8 @@ def tscssum(data: pd.DataFrame, subset: Union[list,None]=None,
     if subset is None:
         subset = data.columns
     else:
-        assert set(subset).issubset(set(data.columns))
+        if not set(subset).issubset(set(data.columns)):
+            raise ValueError('subset is not in columns of data')
     # Construct functions
     funclist = [
        lambda x: np.isfinite(x).sum() if np.isfinite(
@@ -516,6 +551,22 @@ def tscssum(data: pd.DataFrame, subset: Union[list,None]=None,
                   )
     res['N'] = resN
     return res
+
+
+
+def format_table(data, float_digit=3):
+    """Format data in table"""
+    intcols = data.select_dtypes(include='int').columns
+    floatcols = data.select_dtypes(include='float').columns
+    out = []
+    for col in data.columns:
+        if col in intcols:
+            out.append(data[col].apply(lambda x: f'{x:,d}'))
+        elif col in floatcols:
+            out.append(data[col].apply(lambda x: f'{x:.{float_digit}f}'))
+        else:
+            ValueError(f'Column {col} is not of type int or float')
+    return pd.concat(out, axis=1)
 
 
 
@@ -553,18 +604,23 @@ class FMResult:
         return self._eststo
 
     def add(self, params, stderrs, labels, doff, stat):
-        assert isinstance(params, np.ndarray), \
-            'params is not of type numpy.ndarray'
-        assert isinstance(stderrs, np.ndarray), \
-            'stderrs is not of type numpy.ndarray'
-        assert params.ndim == 1, 'params is not 1-D'
-        assert stderrs.ndim == 1, 'stderrs is not 1-D'
-        assert params.shape == stderrs.shape, \
-            'params and stderrs have different shapes.'
-        assert isinstance(labels, list), 'labels is not a list'
+        if not isinstance(params, np.ndarray):
+            raise TypeError('params is not of type numpy.ndarray')
+        if not isinstance(stderrs, np.ndarray):
+            raise TypeError('stderrs is not of type numpy.ndarray')
+        if not params.ndim == 1:
+            raise TypeError('params is not 1-D')
+        if not stderrs.ndim == 1:
+            raise TypeError('stderrs is not 1-D')
+        if not params.shape == stderrs.shape:
+            raise ValueError('params and stderrs have different shapes.')
+        if not isinstance(labels, list):
+            raise TypeError('labels is not a list')
         for s in labels:
-            assert isinstance(s, str), f'element {s} in labels is not str'
-        assert isinstance(stat, (dict, pd.Series))
+            if not isinstance(s, str):
+                raise TypeError(f'element {s} in labels is not str')
+        if not isinstance(stat, (dict, pd.Series)):
+            raise TypeError('stat is not a dict or pandas.Series')
         self._eststo.append({
             'est': [PointEstimate(params[i],
                                   stderrs[i],
@@ -650,10 +706,14 @@ class PointEstimate:
     """
 
     def __init__(self, param, stderr, label, doff):
-        assert isinstance(param, float)
-        assert isinstance(stderr, float)
-        assert isinstance(label, str)
-        assert isinstance(doff, (int, float, np.number))
+        if not isinstance(param, float):
+            raise TypeError('param is not float')
+        if not isinstance(stderr, float):
+            raise TypeError('stderr is not float')
+        if not isinstance(label, str):
+            raise TypeError('label is not float')
+        if not isinstance(doff, (int, float, np.number)):
+            raise TypeError('doff is not of type int, float, or numpy.number')
         self._param = param
         self._stderr = stderr
         self._label = label
@@ -701,7 +761,8 @@ class PointEstimate:
 
     def output(self, stat, tex, outputfmt, scale):
         """Return a pandas.Series of formatted output"""
-        assert isinstance(outputfmt, tuple) and len(outputfmt) == 2
+        if not (isinstance(outputfmt, tuple) and len(outputfmt) == 2):
+            raise TypeError('outputfmt must be tuple of length 2')
         out = pd.Series(
             ['', ''],
             index=pd.MultiIndex.from_product(
@@ -744,7 +805,8 @@ def regtablatex(data: pd.DataFrame) -> str:
         The tex code of the table
     """
     # Check duplicated column headers
-    assert len(data.columns) == len(data.columns.to_flat_index().unique()), 'Duplicated columns headers detected!'
+    if not len(data.columns) == len(data.columns.to_flat_index().unique()):
+        raise ValueError('Duplicated columns headers detected!')
     # ---- Preparation
     data = data.reset_index(drop=True).copy()
     # Number of columns
@@ -844,18 +906,23 @@ def regtabtext(data: pd.DataFrame, showindex: bool=False, colborder: bool=False,
     """
     # ---------- Check arguments
     # Check duplicated column headers
-    assert len(data.columns) == len(data.columns.to_flat_index().unique()), \
-        'Duplicated columns headers detected!'
+    if not len(data.columns) == len(data.columns.to_flat_index().unique()):
+        raise ValueError('Duplicated columns headers detected!')
     # Columns only contain string and only two levels for MultiIndex
     if isinstance(data.columns, pd.MultiIndex):
-        assert data.columns.nlevels == 2
-        assert all(isinstance(s, str) for s in data.columns.levels[0])
-        assert all(isinstance(s, str) for s in data.columns.levels[1])
+        if not data.columns.nlevels == 2:
+            raise ValueError('Columns of data does not have level 2')
+        if not all(isinstance(s, str) for s in data.columns.levels[0]):
+            raise TypeError('Some element of level 0 of data.columns is not str')
+        if not all(isinstance(s, str) for s in data.columns.levels[1]):
+            raise TypeError('Some element of level 1 of data.columns is not str')
     else:
-        assert all(isinstance(s, str) for s in data.columns)
+        if not all(isinstance(s, str) for s in data.columns):
+            raise TypeError('Some element of data.columns is not str')
     # If showindex, then it only contains string
     if showindex:
-        assert data.index.dtype.kind == 'O', 'Index is not of str type.'
+        if not data.index.dtype.kind == 'O':
+            raise ValueError('Index is not of str type.')
     # ---- Preparation
     data = data.reset_index(drop=not showindex).copy()
     # Number of columns and rows
@@ -948,11 +1015,12 @@ def aligntable(data, maxwidth):
 def aligntext(text, width, align):
     """Align text with specific width and direction
     """
-    assert isinstance(text, str), 'text is not of type str.'
-    assert int(width) == width, 'width is not an integer'
-    assert align in ['left', 'right', 'center'], 'Invalid align type.'
-    assert width >= len(text), \
-        f'width ({width}) is smaller than the width of text ({text})'
+    if not isinstance(text, str):
+        raise ValueError('text is not of type str.')
+    if not int(width) == width:
+        raise ValueError('width is not an integer')
+    if not width >= len(text):
+        raise ValueError(f'width ({width}) is smaller than the width of text ({text})')
     if text == '':
         return ' ' * width
     if align == 'left':
@@ -962,7 +1030,7 @@ def aligntext(text, width, align):
     elif align == 'center':
         alignsym = '^'
     else:
-        pass
+        raise ValueError(f'Invalid align type: {align}')
     outstr = ('{:' + alignsym + str(width) + 's}').format(text)
     return outstr
 
