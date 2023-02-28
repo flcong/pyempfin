@@ -62,6 +62,7 @@ preserve
         gen strL indepvar = ""
         gen b = 0
         gen se = 0
+        gen ar2 = 0
     }
     loc model1 = "b_mktrf"
     loc model2 = "b_mktrf b_smb b_hml"
@@ -69,7 +70,7 @@ preserve
     forv m = 1/3 {
         xtfmb exret `model`m'', lag(5)
         foreach v in `model`m'' _cons {
-            frame post fmreg (`m') ("`v'") (_b[`v']) (_se[`v'])
+            frame post fmreg (`m') ("`v'") (_b[`v']) (_se[`v']) (e(r2))
         }
     }
     frame fmreg {

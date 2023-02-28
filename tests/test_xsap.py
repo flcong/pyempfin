@@ -2,8 +2,9 @@ import pytest
 import numpy as np
 from pyempfin.xsap import _winsor_njit, _newey_njit, estbeta, estbeta1m
 from pyempfin.xsap import format_table, fmreg
+from pyempfin.xsap import groupby_wavg, get_port_ret
 import pandas as pd
-from pandas.testing import assert_frame_equal
+from pandas.testing import assert_frame_equal, assert_series_equal
 import re
 
 def checkarr(arr: np.ndarray, orgarr: np.ndarray,
@@ -268,6 +269,53 @@ def test_format_table():
         'floatcol': ['0.1235', '0.2342', '0.2424', '0.2343'],
     }, index=df.index)
     assert_frame_equal(sumstat, df_corr)
+
+
+def test_groupby_wavg():
+    N = 1000
+    np.random.seed(1234)
+    df = pd.DataFrame({
+        'byvar1': np.random.randint(0, 5, (N,)),
+        'byvar2': np.random.randint(0, 10, (N,)),
+        'x': np.random.randn(N),
+        'w': np.random.rand(N),
+    }).sort_values(['byvar1', 'byvar2']).reset_index(drop=True)
+    df.loc[np.random.randint(0, N, (int(.1*N),)), 'x'] = np.nan
+    df.loc[np.random.randint(0, N, (int(.1*N),)), 'w'] = np.nan
+    dftest = groupby_wavg(
+        data=df, bys=['byvar1', 'byvar2'], var='x', weight='w'
+    )
+    dfcorr = df.dropna(subset=['x', 'w']).groupby(['byvar1', 'byvar2']).apply(
+        lambda x: np.average(x['x'], weights=x['w'])
+    )
+    assert_series_equal(dftest, dfcorr, check_names=False)
+
+
+# def test_get_port_ret():
+#     N = 1000
+#     np.random.seed(1234)
+#     df = pd.DataFrame({
+#         'period': np.random.randint(0, 5, (N,)),
+#         'sortvar1': np.random.rand(N),
+#         'sortvar2': np.random.rand(N),
+#         'x': np.random.randn(N),
+#         'w': np.random.rand(N),
+#     }).sort_values(['sortvar1', 'sortvar2']).reset_index(drop=True)
+#     df.loc[np.random.randint(0, N, (int(.1*N),)), 'sortvar1'] = np.nan
+#     df.loc[np.random.randint(0, N, (int(.1*N),)), 'sortvar2'] = np.nan
+#     df.loc[np.random.randint(0, N, (int(.1*N),)), 'x'] = np.nan
+#     df.loc[np.random.randint(0, N, (int(.1*N),)), 'w'] = np.nan
+#     dftest = get_port_ret(
+#         data=df, nq=5, timevar='period', retvar='x',
+#         rnkvars=['sortvar1', 'sortvar2'], rnkvarnames=['rnk1', 'rnk2'],
+#         wvar='w', dep=True,
+#     )
+#     dftest = get_port_ret(
+#         data=df, nq=5, timevar='period', retvar='x',
+#         rnkvars=['sortvar1', 'sortvar2'], rnkvarnames=['rnk1', 'rnk2'],
+#         wvar='w', dep=False,
+#     )
+#
 
 
 # if __name__ == '__main__':
