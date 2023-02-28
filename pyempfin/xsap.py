@@ -1370,8 +1370,9 @@ def groupby_wavg(data: pd.DataFrame, bys: list, var, weight) -> pd.Series:
         xyvar = 'xy'
     # Remove missing values
     datatmp = data.dropna(subset=[var, weight])
-    datatmp[xyvar] = datatmp[var] * datatmp[weight]
-    outvw = datatmp.groupby(bys)[[xyvar, weight]].sum()
+    outvw = datatmp.assign(
+        **{xyvar: lambda x: x[var]*x[weight]}
+    ).groupby(bys)[[xyvar, weight]].sum()
     outvw[var] = outvw[xyvar] / outvw[weight]
     return outvw[var]
 
