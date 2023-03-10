@@ -482,11 +482,11 @@ def rangestat(
 
 def groupby_apply(
         data: pd.DataFrame,
-        by: List[str],
+        by: list,
         func: callable,
-        colargs: Union[List[str],List[List[str]]],
+        colargs: List[list],
         otherargs: tuple,
-        colout: List[str]
+        colout: list,
 ):
     """
     Fast groupby-apply using numba
@@ -494,14 +494,14 @@ def groupby_apply(
     Parameters
     ----------
     data : pandas.DataFrame
-        Input dataframe
+        Input dataframe, should be sorted based on -by-.
     by : list of str
         Names of columns to group by
     func : callable numba function
         The numba function to be applied to each group. The first argument
-        is a list (of length `len(colargs)`) 2d ndarrays from columns specified in colargs.
-        Other arguments are given via otherargs. The return value is also a
-        2d numpy array.
+        is a list (of length `len(colargs)`) of 2d ndarrays from columns
+        specified in colargs. Other arguments are given via otherargs.
+        The return value is also a 2d numpy array.
     colargs :  list of list of str
         Names of columns to be sent to the numba function. Then `len(colargs)` 2d
         ndarrays selected by these column names are sent to `func` as the
@@ -516,25 +516,35 @@ def groupby_apply(
     -------
     pd.DataFrame
     """
-    assert isinstance(data, pd.DataFrame), 'data is not a pandas.DataFrame'
-    assert not data[by].isna().any(None), 'by columns have NaN'
-    assert isinstance(by, list), 'by is not a list'
-    for i, s in enumerate(by):
-        assert isinstance(s, str), f'The {i+1}th element in by is not a str'
-    assert isinstance(colargs, list), 'colargs is not a list'
+    # Check parameters
+    if not isinstance(data, pd.DataFrame):
+        raise TypeError('data is not a pandas.DataFrame')
+    if not isinstance(by, list):
+        raise TypeError('by is not a list')
+    for x in by:
+        if x not in data.columns:
+            raise ValueError(f'{x} in "by" is not in columns of data')
+    if data[by].isna().any(axis=None):
+        raise ValueError('by-columns have NaN')
+    if not isinstance(colargs, list):
+        raise TypeError('colargs is not a list')
     for k, l in enumerate(colargs):
-        assert isinstance(l, list), \
-            f'colargs is a list of list of str, but the {k+1}th element is' \
-            f'not a list'
-        for i, s in enumerate(l):
-            assert isinstance(s, str), \
-                f'colargs is a list of list of str, but the {i+1}th element' \
-                f'in the {k+1}th list is not a str'
-    assert isinstance(otherargs, tuple), 'otherargs is not a tuple'
-    assert isinstance(colout, list), 'colout is not a list'
-    for i, s in enumerate(colout):
-        assert isinstance(s, str), f'The {i+1}th element in colout is not a str'
-
+        if not isinstance(l, list):
+            raise TypeError(f'The {k+1}th element in colargs is not a list')
+        for i, c in enumerate(l):
+            if not c in data.columns:
+                raise ValueError(
+                    f'The {i+1}th element ({c}) in the {k+1}th element '
+                    f'in colargs is not in columns of data'
+                )
+    if not isinstance(otherargs, tuple):
+        raise ValueError('otherargs is not a tuple')
+    if not isinstance(colout, list):
+        raise ValueError('colout is not a list')
+    # Check if data is sorted on -by-
+    byl = [list(row)[1:] for row in data[by].itertuples()]
+    if not all(tuple(byl[i]) <= tuple(byl[i+1]) for i in range(data.shape[0]-1)):
+        raise ValueError('data is not sorted on columns in "by"')
     # Match variable names
     by_name2id = {x: f'by{i}' for i, x in enumerate(by)}
     by_id2name = {f'by{i}': x for i, x in enumerate(by)}
@@ -553,10 +563,12 @@ def groupby_apply(
     # # Rename
     # datatmp = datatmp.rename(columns=by_name2id).rename(columns=colargs_name2id)
     # Extract data and rename columns
+    # (sort removed since it is not stable by default)
     datatmp = pd.concat([data[by].rename(columns=by_name2id)] + [
         data[colarg].rename(columns=colargs_name2id[k])
         for k, colarg in enumerate(colargs)
-    ], axis=1).sort_values(by_id)
+    ], axis=1)
+    # ], axis=1).sort_values(by_id)
     # Get group id
     datatmp['grpid'] = datatmp.groupby(by_id).ngroup()
     # Create a link between by variables and group id
@@ -566,8 +578,8 @@ def groupby_apply(
     # array, but selecting multiple columns return a Fortran-type array
     funcresnp = _groupby_apply_nb(
         datatmp['grpid'].to_numpy(),
-        [np.ascontiguousarray(datatmp[colarg_id].to_numpy())
-         for colarg_id in colargs_id],
+        numba.typed.List([np.ascontiguousarray(datatmp[colarg_id].to_numpy())
+         for colarg_id in colargs_id]),
         func,
         otherargs
     )

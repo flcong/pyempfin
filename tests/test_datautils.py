@@ -271,10 +271,46 @@ class TestAgg:
 
         assert_frame_equal(dfout, dfcor)
 
+    def test_groupbyapply_simple_transform(self):
+        N = 1000
+        Ngx = 10
+        Ngy = 20
+        df = pd.DataFrame({
+            'x': np.random.randint(0, Ngx, N),
+            'y': np.random.randint(0, Ngy, N),
+            'var1': np.random.rand(N),
+        })
+        df.sort_values(['x', 'y'], inplace=True)
+        df.reset_index(drop=True, inplace=True)
+
+        @njit
+        def testfunc(datalist):
+            """Return the same size as input"""
+            return datalist[0]
+
+        dfout = pf.groupby_apply(
+            data=df,
+            by=['x'],
+            func=testfunc,
+            colargs=[['var1']],
+            otherargs=(),
+            colout=['var1']
+        )
+
+        assert_frame_equal(df[['x', 'var1']], dfout)
+
     def test_groupbyapply(self, firm_bond_data):
         df = firm_bond_data
+        # Check sorted
+        msg = 'data is not sorted on columns in "by"'
+        with pytest.raises(ValueError, match=msg):
+            dftest1 = pf.groupby_apply(
+                data=df, by=['firm', 'date'], func=_mean, colargs=[['x']],
+                otherargs=(), colout=['mean']
+            )
         # ---------- Func returning a single number (wrapped in a 2d ndarray)
         # Correct result
+        df.sort_values(['firm', 'date'], inplace=True)
         dfcorr1 = df.groupby(['firm', 'date']).apply(
             lambda x: _mean([x[['x']].to_numpy()])[0][0]
         ).to_frame('mean').reset_index(drop=False)
@@ -285,6 +321,7 @@ class TestAgg:
         )
         assert_frame_equal(dfcorr1, dftest1)
         # ---------- Func with 1 argument (in list) and returning two numbers
+        df.sort_values(['firm', 'date'], inplace=True)
         dfcorr2 = df.groupby(['firm', 'date']).apply(
             lambda x: _ols_njit([x[['y', 'x']].to_numpy()], 10)
         )
@@ -299,6 +336,7 @@ class TestAgg:
         )
         assert_frame_equal(dfcorr2, dftest2)
         # ---------- Func with 2 arguments (in list) and return two numbers
+        df.sort_values(['firm', 'date'], inplace=True)
         dftest3 = pf.groupby_apply(
             data=df, by=['firm', 'date'], func=_ols2_njit, colargs=[['y'], ['x']],
             otherargs=(10, ), colout=['const', 'x']
@@ -315,6 +353,7 @@ class TestAgg:
                 return data
 
         # Correct result
+        df.sort_values(['firm', 'date'], inplace=True)
         dfcorr4 = df.groupby(['firm', 'date']).apply(
             lambda x: _test_func([x[['y', 'x']].to_numpy()], 10)
         ).explode()
@@ -324,6 +363,7 @@ class TestAgg:
             columns=['y_', 'x_']
         ).reset_index(drop=False)
         # Test result
+        df.sort_values(['firm', 'date'], inplace=True)
         dftest3 = pf.groupby_apply(
             data=df, by=['firm', 'date'], func=_test_func, colargs=[['y', 'x']],
             otherargs=(10, ), colout=['y_', 'x_']
