@@ -7,7 +7,7 @@ from functools import partial
 
 from .datetimeutils import *
 from .sqlutils import *
-from .ffi import getffi48, getffi12
+from .ffi import *
 from .logger import *
 from .xsap import *
 from .datautils import *
