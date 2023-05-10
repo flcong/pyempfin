@@ -11,6 +11,7 @@ from statsmodels.stats.sandwich_covariance import cov_hac
 import scipy.stats
 from numba import njit, int32, float64
 import warnings
+from .datautils import groupby_apply
 
 
 # =============================================================================#
@@ -529,15 +530,16 @@ def _winsor_njit(data: np.ndarray, cuts: tuple, interpolation: str):
     return out
 
 
-def tscssum(data: pd.DataFrame, subset: Union[list,None]=None,
+def tscssum(data: pd.DataFrame, by: list, subset: Union[list,None]=None,
             percentiles: tuple=(.01, .05, .50, .95, .99)) -> pd.DataFrame:
-    """Print time-series average of cross-sectional summary statistics
+    """Print time-series average of cross-sectional summary statistics for numeric columns
 
     Parameters
     ----------
     data : pandas.DataFrame
-        The DataFrame to generate summary statistics. Its index must be a
-        MultiIndex with level 0 individuals and level 1 time periods.
+        The DataFrame to generate summary statistics
+    by: list
+        List of columns representing time periods to group by
     subset : list of str, default: None
         The list of column names to generate summary statistics. If None, all
         columns are used.
@@ -550,41 +552,59 @@ def tscssum(data: pd.DataFrame, subset: Union[list,None]=None,
         The summary statistics. Each row represents one variable and each
         column represents one statistic.
     """
+    if not isinstance(by, list):
+        raise TypeError('by must be a list')
+    if not isinstance(subset, list):
+        raise TypeError('subset must be a list')
+    # Select columns (only numeric ones)
     if subset is None:
-        subset = data.columns
+        subset = list(data.select_dtypes(include=['number']).columns)
     else:
         if not set(subset).issubset(set(data.columns)):
             raise ValueError('subset is not in columns of data')
-    # Construct functions
-    funclist = [
-       lambda x: np.isfinite(x).sum() if np.isfinite(
-           x).sum() > 0 else np.nan,
-       lambda x: x[np.isfinite(x)].mean() if np.isfinite(
-           x).sum() > 0 else np.nan,
-       lambda x: x[np.isfinite(x)].std() if np.isfinite(
-           x).sum() > 0 else np.nan,
-       lambda x: x[np.isfinite(x)].min() if np.isfinite(
-           x).sum() > 0 else np.nan,
-       ] + [
-        partial(
-            lambda x, i: np.percentile(x[np.isfinite(x)], q=i * 100)
-            if np.isfinite(x).sum() > 0 else np.nan, i=i)
-        for i in percentiles
-    ] + [lambda x: x[np.isfinite(x)].max() if np.isfinite(
-        x).sum() > 0 else np.nan]
+        subset = list(data[subset].select_dtypes(include=['number']).columns)
+    # Sort
+
+
+    @njit
+    def _sumstat_wrapper(arrlist, percentiles):
+        data = arrlist[0]
+        nstats = len(percentiles) + 5
+        nvars = data.shape[1]
+        out = np.zeros((1, nvars * nstats))
+        out.fill(np.nan)
+        for i in range(nvars):
+            out[0,nstats*i+0] = np.isfinite(data[:,i]).sum()
+            out[0,nstats*i+1] = np.nanmean(data[:,i])
+            out[0,nstats*i+2] = np.nanstd(data[:,i])
+            out[0,nstats*i+3] = np.nanmin(data[:,i])
+            for j in range(len(percentiles)):
+                out[0,nstats*i+j+4] = np.nanquantile(data[:,i], percentiles[j])
+            out[0,nstats*i+len(percentiles)+4] = np.nanmax(data[:,i])
+        return out
+
+
+    statslist = ['N', 'Mean', 'Std', 'Min'] + [
+        'p' + str(int(i * 100)) for i in percentiles
+    ] + ['Max']
+    colout = [(x, y) for x in subset for y in statslist]
+    dftmp = groupby_apply(
+        data=data[by + subset].sort_values(by),
+        by=by,
+        func=_sumstat_wrapper,
+        colargs=[subset],
+        otherargs=(percentiles,),
+        colout=colout,
+    )
+    dftmp.drop(columns=by, inplace=True)
+    dftmp.columns = pd.MultiIndex.from_tuples(dftmp.columns)
+    nrows = dftmp.shape[0]
+    rowlist = dftmp.columns.get_level_values(0).unique()
+    collist = dftmp.columns.get_level_values(1).unique()
+    out = dftmp.mean().unstack(1).loc[rowlist, collist]
     # Calculate the number of observations
-    resN = data.groupby(level=1)[subset].agg(funclist[0]).sum().astype('int')
-    # Calculate other summary statistics
-    res = data.groupby(level=1)[subset] \
-        .agg(funclist) \
-        .mean() \
-        .unstack(level=-1) \
-        .set_axis(['N', 'Mean', 'Std', 'Min'] +
-                  ['p' + str(int(i * 100)) for i in percentiles] + ['Max'],
-                  axis='columns'
-                  )
-    res['N'] = resN
-    return res
+    out['N'] = (out['N'] * nrows).astype('int')
+    return out
 
 
 def format_table(data, float_digit=3):

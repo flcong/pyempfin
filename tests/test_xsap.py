@@ -7,6 +7,9 @@ import pandas as pd
 from pandas.testing import assert_frame_equal, assert_series_equal
 import re
 
+def assert_float_equal(x, y, tol=1e-15):
+    return np.abs(x-y) < tol
+
 def checkarr(arr: np.ndarray, orgarr: np.ndarray,
              lower: float, upper: float) -> bool:
     # Same missing values
@@ -304,34 +307,35 @@ def test_tscssum():
     df.loc[np.random.randint(0, N, (int(.1*N),)), 'x'] = np.nan
     df.loc[np.random.randint(0, N, (int(.1*N),)), 'y'] = np.nan
     df.loc[np.random.randint(0, N, (int(.1*N),)), 'z'] = np.nan
-    df.set_index(['byvar1', 'byvar2'], inplace=True)
     dftest = tscssum(
-        df, subset=['x', 'z'], percentiles=(.01, .05, .25, .50, .75, .95, .99)
+        df, by=['byvar1', 'byvar2'], subset=['x', 'z'], percentiles=(.01, .05, .25, .50, .75, .95, .99)
     )
-    assert dftest.loc['x', 'N'] == df.groupby(level=1)['x'].count().sum()
-    assert dftest.loc['z', 'N'] == df.groupby(level=1)['z'].count().sum()
-    assert dftest.loc['x', 'Mean'] == df.groupby(level=1)['x'].mean().mean()
-    assert dftest.loc['z', 'Mean'] == df.groupby(level=1)['z'].mean().mean()
-    assert dftest.loc['x', 'Std'] == df.groupby(level=1)['x'].std().mean()
-    assert dftest.loc['z', 'Std'] == df.groupby(level=1)['z'].std().mean()
-    assert dftest.loc['x', 'Min'] == df.groupby(level=1)['x'].min().mean()
-    assert dftest.loc['z', 'Min'] == df.groupby(level=1)['z'].min().mean()
-    assert dftest.loc['x', 'p1'] == df.groupby(level=1)['x'].quantile(0.01).mean()
-    assert dftest.loc['z', 'p1'] == df.groupby(level=1)['z'].quantile(0.01).mean()
-    assert dftest.loc['x', 'p5'] == df.groupby(level=1)['x'].quantile(0.05).mean()
-    assert dftest.loc['z', 'p5'] == df.groupby(level=1)['z'].quantile(0.05).mean()
-    assert dftest.loc['x', 'p25'] == df.groupby(level=1)['x'].quantile(0.25).mean()
-    assert dftest.loc['z', 'p25'] == df.groupby(level=1)['z'].quantile(0.25).mean()
-    assert dftest.loc['x', 'p50'] == df.groupby(level=1)['x'].quantile(0.50).mean()
-    assert dftest.loc['z', 'p50'] == df.groupby(level=1)['z'].quantile(0.50).mean()
-    assert dftest.loc['x', 'p75'] == df.groupby(level=1)['x'].quantile(0.75).mean()
-    assert dftest.loc['z', 'p75'] == df.groupby(level=1)['z'].quantile(0.75).mean()
-    assert dftest.loc['x', 'p95'] == df.groupby(level=1)['x'].quantile(0.95).mean()
-    assert dftest.loc['z', 'p95'] == df.groupby(level=1)['z'].quantile(0.95).mean()
-    assert dftest.loc['x', 'p99'] == df.groupby(level=1)['x'].quantile(0.99).mean()
-    assert dftest.loc['z', 'p99'] == df.groupby(level=1)['z'].quantile(0.99).mean()
-    assert dftest.loc['x', 'Max'] == df.groupby(level=1)['x'].max().mean()
-    assert dftest.loc['z', 'Max'] == df.groupby(level=1)['z'].max().mean()
+    for v in ['x', 'z']:
+        assert_float_equal(
+            dftest.loc[v, 'N'],
+            df.groupby(['byvar1','byvar2'])[v].count().sum()
+        )
+        assert_float_equal(
+            dftest.loc[v, 'Mean'],
+            df.groupby(['byvar1','byvar2'])[v].mean().mean()
+        )
+        assert_float_equal(
+            dftest.loc[v, 'Std'],
+            df.groupby(['byvar1','byvar2'])[v].std().mean()
+        )
+        assert_float_equal(
+            dftest.loc[v, 'Min'],
+            df.groupby(['byvar1','byvar2'])[v].min().mean()
+        )
+        assert_float_equal(
+            dftest.loc[v, 'Max'],
+            df.groupby(['byvar1','byvar2'])[v].max().mean()
+        )
+        for pct in [1, 5, 25, 50, 75, 95, 99]:
+            assert_float_equal(
+                dftest.loc[v, f'p{pct}'],
+                df.groupby(['byvar1', 'byvar2'])[v].quantile(pct/100).mean(),
+            )
 
 
 # def test_get_port_ret():
