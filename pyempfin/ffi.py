@@ -1,9 +1,7 @@
 import pandas as pd
 from typing import Union
-from numba import njit
 
 
-@njit
 def getffi48(sic: int, getdesc=False) -> Union[int,pd._libs.missing.NAType]:
     """Return Fama-French 48 industry code or description given SIC"""
     if pd.isna(sic):
@@ -712,7 +710,6 @@ def getffi48(sic: int, getdesc=False) -> Union[int,pd._libs.missing.NAType]:
         return ffi48
 
 
-@njit
 def getffi30(sic: int, getdesc=False) -> Union[int,pd._libs.missing.NAType]:
     """Return Fama-French 30 industry code or description given SIC"""
     if pd.isna(sic):
