@@ -270,6 +270,7 @@ def weighted_mean(data: pd.DataFrame,
     pd.DataFrame
         Output DataFrame with column names in by and wavg.
     """
+    raise DeprecationWarning('Note that weighted_mean is slower than groupby_wavg')
     # Dict to encode column names
     encodedict = {by[i]: f'by_{i}' for i in range(len(by))}
     encodedict[value] = 'value'
