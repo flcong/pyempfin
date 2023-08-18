@@ -1557,6 +1557,36 @@ def get_port_ret(
         return out
 
 
+def get_qcut(x, q, rnkvar, rnkvarname):
+    """
+    Similar to pd.qcut, but allow for closed interval and duplicate observations
+    with multiple closed interval matched. This function is to be used in a
+    `pandas.groupby()` function.
+
+    Parameters
+    ----------
+    x : DataFrame
+        The input array, typically a dataframe or chunk of a dataframe split by a `groupby()` function
+    q : int
+        Number of portfolios (e.g. 5 for quintile)
+    rnkvar : str
+        Name of the variable to sort on
+    rnkvarname : str
+        Name of the created variable representing different portfolios
+
+    Returns
+    -------
+    out : DataFrame
+        The output DataFrame is the same as the input `x` except that:
+
+        * A new variable named `rnkvarname` is added representing intervals (if `retinterval=True`)
+        or portfolio numbers (if `retinterval=False`).
+        * Observations (rows) corresponding to multiple intervals are duplicated with the multiple intervals
+        (or numbers) assigned to `rnkvarname`.
+
+    """
+    return _get_qcut(x, q, rnkvar, rnkvarname)
+
 def _get_qcut(x, q, rnkvar, rnkvarname):
     """
     Similar to pd.qcut, but allow for closed interval and duplicate observations
