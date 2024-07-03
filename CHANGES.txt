@@ -1,0 +1,3 @@
+
+2024-07-02
+* Refactor `estbeta1m()` so that arbitrary statistics on rolling-window data can be calculated.

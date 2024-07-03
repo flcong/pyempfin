@@ -3,7 +3,7 @@ import pandas as pd
 from numba import njit
 from joblib import Parallel, delayed, cpu_count
 from scipy.stats import t as tdist
-from typing import Union, Optional, Tuple, List
+from typing import Union, Optional, Tuple, List, Callable
 import re
 from functools import partial
 from statsmodels.regression.linear_model import OLS, OLSResults
@@ -181,15 +181,50 @@ def _get_beta_njit(endogmat: np.ndarray, exogmat: np.ndarray, window: tuple,
         T-by-K matrix. Rows represent time periods. Each column
         represent beta for each factor. The intercept is not returned.
     """
+    return _get_rolling_stats_njit(
+        endogmat, exogmat, window, minobs,
+        _estimate_beta_njit, (hasconst,), exogmat.shape[1],
+    )
+
+
+@njit
+def _get_rolling_stats_njit(
+        endogmat: np.ndarray, exogmat: np.ndarray, window: tuple, minobs: int,
+        func: Callable, func_args: tuple, func_retsize: int) -> np.ndarray:
+    """Calculate rolling-window statistics
+
+    Parameters
+    ----------
+    endogmat : 1-D numpy.ndarray
+        A vector of returns indexed by time.
+    exogmat : 2-D numpy.ndarray
+        T-by-K matrix, Rows represent time periods and columns represent
+        independent variables.
+    window : tuple of 2 integers
+        The period used to calculate statistics. For example, `(-24,-1)` means using
+        data between `t-24` and `t-1` to calculate statistics at time `t`.
+    minobs : int
+        Minimum number of observations to calculate statistics
+    func : Callable
+        Function to be applied for each period to calculate statistics
+        in the rolling window. The function has signature (endogmat,exogmat,*args).
+        The function returns a 1D vector with size func_retsize
+    func_args : tuple
+        Other arguments to be passed to func.
+    func_retsize : int
+        Size of the returned vector
+
+    Returns
+    -------
+    2-D numpy.ndarray
+        T-by-K matrix. Rows represent time periods. Each column
+        represent beta for each factor. The intercept is not returned.
+    """
     # Number of periods, variables,
     nper = endogmat.shape[0]
-    nvar = exogmat.shape[1]
-    # Add constant
-    if hasconst:
-        exogmat = np.hstack((exogmat, np.ones((nper, 1))))
     # Initialization
-    estbeta = np.zeros((nper, nvar))
-    estbeta.fill(np.nan)
+    outstats = np.zeros((nper, func_retsize))
+    outstats.fill(np.nan)
     # Loop
     for t in range(-window[0], nper):
         # Note that right boundary is not included in array slicing
@@ -203,11 +238,25 @@ def _get_beta_njit(endogmat: np.ndarray, exogmat: np.ndarray, window: tuple,
         Y = endogtmp[nnanmask]
         XX = X.T @ X
         if (len(Y) >= minobs) and (np.linalg.matrix_rank(XX) == X.shape[1]):
-            if hasconst:
-                estbeta[t, :] = (np.linalg.inv(XX) @ X.T @ Y)[:-1]
-            else:
-                estbeta[t, :] = np.linalg.inv(XX) @ X.T @ Y
-    return estbeta
+            outstats[t, :] = func(Y, X, *func_args)
+            # if hasconst:
+            #     outstats[t, :] = (np.linalg.inv(XX) @ X.T @ Y)[:-1]
+            # else:
+            #     outstats[t, :] = np.linalg.inv(XX) @ X.T @ Y
+    return outstats
+
+
+@njit
+def _estimate_beta_njit(endogNotNull, exogNotNull, hasconst):
+    X = exogNotNull
+    if hasconst:
+        X = np.hstack((X, np.ones((X.shape[0], 1))))
+    Y = endogNotNull
+    XX = X.T @ X
+    if hasconst:
+        return (np.linalg.inv(XX) @ X.T @ Y)[:-1]
+    else:
+        return np.linalg.inv(XX) @ X.T @ Y
 
 
 # =============================================================================#
