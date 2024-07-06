@@ -1,4 +1,7 @@
 
+v0.1.3
+* Fix bug in calculation of condition number.
+
 v0.1.2
 * Create functions to calculate VIF and condition number
 * Expose the function to compute arbitrage statistics on rolling-window data.

@@ -261,7 +261,16 @@ def _estimate_ols_coefs_njit(endog_not_null, exog_not_null):
 
 @njit
 def njit_get_condition_number(endog, exog):
-    eigvals = np.linalg.eigvalsh(exog.T @ exog)
+    # REF: Salmerón, R., García, C. B., & García, J. (2018). Variance Inflation
+    # Factor and Condition Number in multiple linear regression. Journal of
+    # Statistical Computation and Simulation, 88(12), 2365–2384.
+    # "Standardize" columns of exog to have unit length
+    exog_ = np.zeros(exog.shape)
+    exog_.fill(np.nan)
+    for i in range(exog.shape[1]):
+        exog_[:, i] = exog[:, i] / np.linalg.norm(exog[:, i])
+    # Calculate eigenvalues and condition number
+    eigvals = np.linalg.eigvalsh(exog_.T @ exog_)
     eigvals = np.sort(eigvals)[::-1]
     return np.sqrt(eigvals[0]/eigvals[-1])
 
