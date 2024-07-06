@@ -134,7 +134,7 @@ def estbeta1m(leftdata: pd.Series, rightdata: pd.DataFrame, model: list,
         np.concatenate(
             Parallel(n_jobs=ncore)(
                 delayed(
-                    lambda x: _get_beta_njit(
+                    lambda x: _get_beta(
                         x, exog, window, minobs, hasconst)
                 )(leftmat[v].to_numpy())
                 for v in leftmat.columns), axis=1
@@ -154,8 +154,7 @@ def estbeta1m(leftdata: pd.Series, rightdata: pd.DataFrame, model: list,
 
 
 
-@njit
-def _get_beta_njit(endogmat: np.ndarray, exogmat: np.ndarray, window: tuple,
+def _get_beta(endogmat: np.ndarray, exogmat: np.ndarray, window: tuple,
                    minobs: int, hasconst: bool
                    ) -> np.ndarray:
     """Calculate rolling-window beta
@@ -181,14 +180,17 @@ def _get_beta_njit(endogmat: np.ndarray, exogmat: np.ndarray, window: tuple,
         T-by-K matrix. Rows represent time periods. Each column
         represent beta for each factor. The intercept is not returned.
     """
-    return _get_rolling_stats_njit(
+    n_factors = exogmat.shape[1]
+    if hasconst:
+        exogmat = np.hstack((exogmat, np.ones((exogmat.shape[0], 1))))
+    return get_rolling_stats_njit(
         endogmat, exogmat, window, minobs,
-        _estimate_beta_njit, (hasconst,), exogmat.shape[1],
+        _estimate_beta_njit, (hasconst,), n_factors,
     )
 
 
 @njit
-def _get_rolling_stats_njit(
+def get_rolling_stats_njit(
         endogmat: np.ndarray, exogmat: np.ndarray, window: tuple, minobs: int,
         func: Callable, func_args: tuple, func_retsize: int) -> np.ndarray:
     """Calculate rolling-window statistics
@@ -239,24 +241,64 @@ def _get_rolling_stats_njit(
         XX = X.T @ X
         if (len(Y) >= minobs) and (np.linalg.matrix_rank(XX) == X.shape[1]):
             outstats[t, :] = func(Y, X, *func_args)
-            # if hasconst:
-            #     outstats[t, :] = (np.linalg.inv(XX) @ X.T @ Y)[:-1]
-            # else:
-            #     outstats[t, :] = np.linalg.inv(XX) @ X.T @ Y
     return outstats
 
 
 @njit
-def _estimate_beta_njit(endogNotNull, exogNotNull, hasconst):
-    X = exogNotNull
+def _estimate_beta_njit(endog_not_null, exog_not_null, hasconst):
     if hasconst:
-        X = np.hstack((X, np.ones((X.shape[0], 1))))
-    Y = endogNotNull
-    XX = X.T @ X
-    if hasconst:
-        return (np.linalg.inv(XX) @ X.T @ Y)[:-1]
+        return _estimate_ols_coefs_njit(endog_not_null, exog_not_null)[:-1]
     else:
-        return np.linalg.inv(XX) @ X.T @ Y
+        return _estimate_ols_coefs_njit(endog_not_null, exog_not_null)
+
+
+@njit
+def _estimate_ols_coefs_njit(endog_not_null, exog_not_null):
+    X, Y = exog_not_null, np.ascontiguousarray(endog_not_null)
+    XX = X.T @ X
+    return np.linalg.inv(XX) @ X.T @ Y
+
+
+@njit
+def njit_get_condition_number(endog, exog):
+    eigvals = np.linalg.eigvalsh(exog.T @ exog)
+    eigvals = np.sort(eigvals)[::-1]
+    return np.sqrt(eigvals[0]/eigvals[-1])
+
+
+@njit
+def njit_get_vifs(exog):
+    k_vars = exog.shape[1]
+    vifs = np.zeros(k_vars)
+    vifs.fill(np.nan)
+    for i in range(k_vars):
+        x_i = exog[:, i]
+        mask = np.arange(k_vars) != i
+        x_noti = exog[:, mask]
+        r2 = _njit_get_rsquared(x_i, x_noti)
+        vifs[i] = 1. / (1. - r2)
+    return vifs
+
+
+@njit
+def _check_has_const(arr):
+    for i in range(arr.shape[1]):
+        if np.max(arr[:,i]) == np.min(arr[:,i]):
+            return True
+    return False
+
+
+@njit
+def _njit_get_rsquared(endog, exog):
+    coefs = _estimate_ols_coefs_njit(endog, exog)
+    resid = endog - exog @ coefs
+    ssr = resid.dot(resid)
+    if _check_has_const(exog):
+        endog_ = endog - endog.mean()
+        return 1- ssr / endog_.dot(endog_)
+    else:
+        return 1 - ssr / endog.dot(endog)
+
 
 
 # =============================================================================#
