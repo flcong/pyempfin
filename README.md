@@ -1,4 +1,4 @@
 # pyempfin
-Version: 0.1.1
+Version: 0.1.2
 
 Helper functions for empirical finance research using Python.

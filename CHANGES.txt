@@ -1,3 +1,7 @@
 
-2024-07-02
+v0.1.2
+* Create functions to calculate VIF and condition number
+* Expose the function to compute arbitrage statistics on rolling-window data.
+
+v0.1.1
 * Refactor `estbeta1m()` so that arbitrary statistics on rolling-window data can be calculated.
