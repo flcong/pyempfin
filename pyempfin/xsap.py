@@ -606,6 +606,25 @@ def _newey_njit(xe: np.ndarray, maxlag: int):
 
 @njit
 def winsor_njit(data: np.ndarray, cuts: tuple, interpolation: str):
+    """Winsorize a numpy array (faster using numba)
+
+    Parameters
+    ----------
+    data : numpy.ndarray
+        A 1D numpy array
+    cuts: tuple
+        A tuple of two elements. The first element is the lower percentile and
+        the second element is the upper percentile. Both should be between 0 and 1
+    interpolation: str
+        Either 'inner' or 'outer'. In the case that the exact percentile is between
+        two values, 'inner' will choose the one closer to the center and 'outer'
+        will choose the one closer to the tail
+
+    Returns
+    -------
+    numpy.ndarray
+        Winsorized data
+    """
     # Select non-missing values
     datatmp = data[np.isfinite(data)]
     N = datatmp.shape[0]
