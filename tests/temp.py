@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from pyempfin.xsap import _winsor_njit, _newey_njit, estbeta, estbeta1m
+from pyempfin.xsap import winsor_njit, _newey_njit, estbeta, estbeta1m
 import pandas as pd
 import os
 from joblib import Parallel, delayed

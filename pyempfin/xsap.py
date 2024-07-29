@@ -542,9 +542,9 @@ def _fmreg_njit(endogmat, exogmat, maxlag, hasconst, winsorcuts, winsorindeponly
             # Winsor variables
             if winsorcuts is not None:
                 for i in range(K):
-                    X[:, i] = _winsor_njit(X[:, i], winsorcuts, 'inner')
+                    X[:, i] = winsor_njit(X[:, i], winsorcuts, 'inner')
                 if not winsorindeponly:
-                    Y = _winsor_njit(Y, winsorcuts, 'inner')
+                    Y = winsor_njit(Y, winsorcuts, 'inner')
             XX = X.T @ X
             if X.shape[0] > X.shape[1] and np.linalg.matrix_rank(XX) == X.shape[1]:
                 beta = np.linalg.inv(XX) @ X.T @ Y
@@ -605,7 +605,7 @@ def _newey_njit(xe: np.ndarray, maxlag: int):
 
 
 @njit
-def _winsor_njit(data: np.ndarray, cuts: tuple, interpolation: str):
+def winsor_njit(data: np.ndarray, cuts: tuple, interpolation: str):
     # Select non-missing values
     datatmp = data[np.isfinite(data)]
     N = datatmp.shape[0]

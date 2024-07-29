@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from pyempfin.xsap import _winsor_njit, _newey_njit, estbeta, estbeta1m
+from pyempfin.xsap import winsor_njit, _newey_njit, estbeta, estbeta1m
 from pyempfin.xsap import format_table, fmreg
 from pyempfin.xsap import groupby_wavg, get_port_ret, tscssum
 import pandas as pd
@@ -47,9 +47,9 @@ def test_winsor():
     # Shuffle
     np.random.shuffle(arr)
     # Winsorize
-    w1 = _winsor_njit(arr, (0.052, 0.959), interpolation='inner')
+    w1 = winsor_njit(arr, (0.052, 0.959), interpolation='inner')
     assert checkarr(w1, arr, lower=6.0, upper=95.0)
-    w2 = _winsor_njit(arr, (0.052, 0.959), interpolation='outer')
+    w2 = winsor_njit(arr, (0.052, 0.959), interpolation='outer')
     assert checkarr(w2, arr, lower=5.0, upper=96.0)
 
 
