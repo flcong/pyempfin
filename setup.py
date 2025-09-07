@@ -1,7 +1,7 @@
 from setuptools import setup
 
 setup(name='pyempfin',
-      version='0.1.3',
+      version='0.1.4',
       description='Helper functions for empirical finance research',
       author='Francis Cong',
       license='MIT',
