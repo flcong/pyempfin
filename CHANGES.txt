@@ -1,3 +1,6 @@
+v0.1.4
+* Make function winsor_njit publicly accessible.
+* Allow function fmreg to return the result as an FMResult object instead of a table
 
 v0.1.3
 * Fix bug in calculation of condition number.
