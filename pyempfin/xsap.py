@@ -314,9 +314,10 @@ def _njit_get_rsquared(endog, exog):
 # Fama-MacBeth Regression
 # =============================================================================#
 
+
 def fmreg(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: list,
         maxlag: int, roworder: list, hasconst: bool, scale: float,
-        getlambda: bool, winsorcuts: Union[tuple,None]=None,
+        getlambda: bool, getregtable: bool=True, winsorcuts: Union[tuple,None]=None,
         winsorindeponly: bool=True, estfmt: tuple=('.3f', '.2f')
           ) -> Union[pd.DataFrame, Tuple[pd.DataFrame, pd.Series]]:
     """Estimate FM regression for one model specification.
@@ -357,13 +358,16 @@ def fmreg(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: list,
         A 2-D tuple of str specifying the format of the coefficient and tstat,
         respectively.
     getlambda : bool
-        If True,
+    getregtable : bool, default true
     Return
     ------
     pd.DataFrame
         Formatted regression table
     pd.DataFrame, pd.Series
         If getlambda=True, then also return estimated lambda in a pandas.Series
+    FMResult
+        If getregtable=False, then return the FMResult object containing detailed estimations. getregtable=False and
+        getlambda=True cannot happen simultaneously
     """
     # Check arguments
     if not isinstance(leftdata, pd.DataFrame):
@@ -411,7 +415,8 @@ def fmreg(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: list,
     for s in estfmt:
         if not isinstance(s, str):
             raise ValueError(f'{s} in estfmt is not a str')
-
+    if getlambda and not getregtable:
+        raise ValueError('Cannot simultaneously have getlambda=True and getregtable=False')
     estout = FMResult()
     for model in models:
         # Check arguments
@@ -491,6 +496,8 @@ def fmreg(leftdata: pd.DataFrame, rightdata: pd.DataFrame, models: list,
         roworder=roworder + ['Constant'] if hasconst else roworder,
         scale=scale
     )
+    if not getregtable:
+        return estout
     if not getlambda:
         return estouttab
     else:
