@@ -2,11 +2,9 @@ import numpy as np
 import pandas as pd
 from functools import partial
 from typing import Union, List, Tuple
-from numba import njit, generated_jit
+from numba import njit
 import numba
 
-
-ARR_TYPES = (numba.types.Array)
 
 
 def winsor(datacol: pd.Series, lower: float, upper: float) -> pd.Series:
@@ -643,12 +641,12 @@ def _groupby_apply_nb(
 
 
 
-@generated_jit(nopython=True)
+@njit
 def _is_2darray(data):
-    if isinstance(data, ARR_TYPES) and data.ndim == 2:
-        return lambda data: True
+    if data.ndim == 2:
+        return True
     else:
-        return lambda data: False
+        return False
 
 
 

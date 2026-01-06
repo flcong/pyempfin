@@ -1,3 +1,6 @@
+v0.1.5
+* Adapt to new numba version to remove generated_njit.
+
 v0.1.4
 * Make function winsor_njit publicly accessible.
 * Allow function fmreg to return the result as an FMResult object instead of a table
